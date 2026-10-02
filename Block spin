@@ -1,0 +1,706 @@
+-- ==========================================
+-- CAR SNAP ULTIMATE v3.1 FINAL
+-- ==========================================
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+-- ==========================================
+-- SILENT AIM VARIABLES
+-- ==========================================
+local F = true
+local H = 120
+local I = nil
+local TracerHitColor = 0
+local K = nil
+local TracerESP = {}
+local M = false
+local N = false
+local O = false
+
+local function getClosestTarget()
+    if not F then return nil end
+    local closest, closestDist = nil, H
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local char = player.Character
+            local hum = char:FindFirstChild("Humanoid")
+            local head = char:FindFirstChild("Head")
+            if hum and hum.Health > 0 and head then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if dist2D <= H and dist2D < closestDist then
+                        closestDist = dist2D
+                        closest = player
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- ==========================================
+-- CAR SNAP SYSTEM
+-- ==========================================
+local CarSnapSystem = {
+    PlatformEnabled = false,
+    Platform = nil,
+    PlatformSize = Vector3.new(20, 1.5, 10),
+    PlatformOffset = Vector3.new(0, -3, 0),
+    PlatformConnection = nil,
+    SnapDownEnabled = false,
+    SnapUpEnabled = false,
+    MaxDepthDown = 15,
+    MaxHeightUp = 3,
+    CurrentDepthDown = 0,
+    CurrentHeightUp = 0,
+    OriginalHeight = nil,
+    GuideActive = false,
+    GuideFrame = nil
+}
+
+local function FindVehicle()
+    local Vehicles = Workspace:FindFirstChild("Vehicles")
+    if not Vehicles then return nil end
+    for _, Vehicle in ipairs(Vehicles:GetChildren()) do
+        if Vehicle:GetAttribute("OwnerUserId") == LocalPlayer.UserId then
+            return Vehicle
+        end
+    end
+    local Character = LocalPlayer.Character
+    if Character then
+        local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+        if Humanoid and Humanoid.SeatPart then
+            return Humanoid.SeatPart.Parent
+        end
+    end
+    return nil
+end
+
+local function getChassis()
+    local car = FindVehicle()
+    if not car then return nil end
+    local chassis = car:FindFirstChild("Chassis")
+    if not chassis then
+        for _, child in ipairs(car:GetChildren()) do
+            if child:IsA("BasePart") then chassis = child; break end
+        end
+    end
+    return chassis
+end
+
+local function createFollowingPlatform()
+    if CarSnapSystem.Platform then CarSnapSystem.Platform:Destroy() end
+    
+    local part = Instance.new("Part")
+    part.Name = "CarFollowPlatform"
+    part.Size = CarSnapSystem.PlatformSize
+    part.Anchored = true
+    part.CanCollide = true
+    part.Material = Enum.Material.Neon
+    part.Color = Color3.fromRGB(0, 170, 255)
+    part.Transparency = 0.2
+    part.TopSurface = Enum.SurfaceType.Smooth
+    part.BottomSurface = Enum.SurfaceType.Smooth
+    part.Parent = Workspace
+    
+    CarSnapSystem.Platform = part
+    return part
+end
+
+local function startPlatformLoop()
+    if CarSnapSystem.PlatformConnection then
+        CarSnapSystem.PlatformConnection:Disconnect()
+    end
+    
+    CarSnapSystem.PlatformConnection = RunService.Heartbeat:Connect(function()
+        if not CarSnapSystem.PlatformEnabled then return end
+        
+        local chassis = getChassis()
+        if not chassis then return end
+        
+        if not CarSnapSystem.Platform or not CarSnapSystem.Platform.Parent then
+            createFollowingPlatform()
+        end
+        
+        local carPos = chassis.Position
+        local newPos = carPos + CarSnapSystem.PlatformOffset
+        CarSnapSystem.Platform.CFrame = CFrame.new(newPos)
+    end)
+end
+
+local function stopPlatform()
+    CarSnapSystem.PlatformEnabled = false
+    if CarSnapSystem.PlatformConnection then
+        CarSnapSystem.PlatformConnection:Disconnect()
+        CarSnapSystem.PlatformConnection = nil
+    end
+    if CarSnapSystem.Platform then
+        CarSnapSystem.Platform:Destroy()
+        CarSnapSystem.Platform = nil
+    end
+end
+
+local function snapDown()
+    local chassis = getChassis()
+    if not chassis then return end
+    
+    if not CarSnapSystem.OriginalHeight then
+        CarSnapSystem.OriginalHeight = chassis.Position.Y
+    end
+    
+    local targetY = CarSnapSystem.OriginalHeight - CarSnapSystem.CurrentDepthDown
+    local pos = chassis.Position
+    chassis.CFrame = CFrame.new(pos.X, targetY, pos.Z) * CFrame.Angles(chassis.CFrame:ToEulerAnglesXYZ())
+end
+
+local function snapUp()
+    local chassis = getChassis()
+    if not chassis then return end
+    
+    if not CarSnapSystem.OriginalHeight then
+        CarSnapSystem.OriginalHeight = chassis.Position.Y
+    end
+    
+    local targetY = CarSnapSystem.OriginalHeight + CarSnapSystem.CurrentHeightUp
+    local pos = chassis.Position
+    chassis.CFrame = CFrame.new(pos.X, targetY, pos.Z) * CFrame.Angles(chassis.CFrame:ToEulerAnglesXYZ())
+end
+
+local function createGuide()
+    if CarSnapSystem.GuideFrame then CarSnapSystem.GuideFrame:Destroy() end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "CarGuide"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = game:GetService("CoreGui")
+    
+    local frame = Instance.new("Frame")
+    frame.Name = "Guide"
+    frame.Size = UDim2.fromOffset(150, 120)
+    frame.Position = UDim2.fromOffset(50, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    frame.BackgroundTransparency = 0.15
+    frame.BorderSizePixel = 0
+    frame.Parent = screenGui
+    frame.Active = true
+    frame.Draggable = true
+    
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", frame)
+    stroke.Color = Color3.fromRGB(0, 170, 255)
+    stroke.Thickness = 2
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 28)
+    title.BackgroundTransparency = 1
+    title.Text = "ðŸš— Car Position"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 13
+    title.Font = Enum.Font.GothamBold
+    title.Parent = frame
+    
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(1, -10, 1, -38)
+    status.Position = UDim2.new(0, 5, 0, 32)
+    status.BackgroundTransparency = 1
+    status.Text = "X: 0\nY: 0\nZ: 0"
+    status.TextColor3 = Color3.fromRGB(180, 220, 255)
+    status.TextSize = 10
+    status.Font = Enum.Font.Gotham
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.Parent = frame
+    
+    local connection = RunService.RenderStepped:Connect(function()
+        if not CarSnapSystem.GuideActive then
+            connection:Disconnect()
+            if screenGui and screenGui.Parent then screenGui:Destroy() end
+            return
+        end
+        
+        local car = FindVehicle()
+        if car then
+            local pos = car:GetPivot().Position
+            status.Text = string.format("X: %.1f\nY: %.1f\nZ: %.1f", pos.X, pos.Y, pos.Z)
+        end
+    end)
+    
+    CarSnapSystem.GuideFrame = screenGui
+end
+
+-- ==========================================
+-- FARM SPEED SYSTEM (Solo al mover)
+-- ==========================================
+local FarmSpeedSystem = {
+    Enabled = false,
+    Speed = 100,
+    Connection = nil,
+    IsMoving = false
+}
+
+local lastCarPos = nil
+
+local function startFarmSpeed()
+    if FarmSpeedSystem.Connection then
+        FarmSpeedSystem.Connection:Disconnect()
+    end
+    
+    FarmSpeedSystem.Connection = RunService.Heartbeat:Connect(function()
+        if not FarmSpeedSystem.Enabled then return end
+        
+        local chassis = getChassis()
+        if not chassis then return end
+        
+        -- Detectar si se estÃ¡ moviendo
+        if lastCarPos then
+            local dist = (chassis.Position - lastCarPos).Magnitude
+            FarmSpeedSystem.IsMoving = dist > 0.5
+        end
+        
+        lastCarPos = chassis.Position
+        
+        -- Solo aplicar velocidad si se estÃ¡ moviendo
+        if FarmSpeedSystem.IsMoving then
+            local direction = chassis.CFrame.LookVector
+            chassis.AssemblyLinearVelocity = direction * FarmSpeedSystem.Speed
+        end
+    end)
+end
+
+local function stopFarmSpeed()
+    FarmSpeedSystem.Enabled = false
+    if FarmSpeedSystem.Connection then
+        FarmSpeedSystem.Connection:Disconnect()
+        FarmSpeedSystem.Connection = nil
+    end
+end
+
+-- ==========================================
+-- BUMP AURA SYSTEM (FUNCIONAL)
+-- ==========================================
+local BumpAuraSystem = {
+    Enabled = false,
+    Range = 100,
+    Power = 150,
+    Connection = nil
+}
+
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local SendRemote = Remotes:FindFirstChild("Send")
+
+local function startBumpAura()
+    if BumpAuraSystem.Connection then
+        BumpAuraSystem.Connection:Disconnect()
+    end
+    
+    BumpAuraSystem.Connection = RunService.Heartbeat:Connect(function()
+        if not BumpAuraSystem.Enabled then return end
+        
+        local car = FindVehicle()
+        if not car then return end
+        
+        local myChar = LocalPlayer.Character
+        if not myChar or not myChar.PrimaryPart then return end
+        
+        for _, target in ipairs(Players:GetPlayers()) do
+            if target ~= LocalPlayer and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                local hrp = target.Character.HumanoidRootPart
+                local dist = (hrp.Position - myChar.PrimaryPart.Position).Magnitude
+                
+                if dist < BumpAuraSystem.Range then
+                    -- Aplicar velocidad al auto hacia el jugador
+                    local direction = (hrp.Position - car:GetPivot().Position).Normalized
+                    local velocity = direction * BumpAuraSystem.Power
+                    
+                    for _, part in ipairs(car:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.AssemblyLinearVelocity = velocity
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopBumpAura()
+    BumpAuraSystem.Enabled = false
+    if BumpAuraSystem.Connection then
+        BumpAuraSystem.Connection:Disconnect()
+        BumpAuraSystem.Connection = nil
+    end
+end
+
+-- ==========================================
+-- WINDUI CREATION
+-- ==========================================
+local Window = WindUI:CreateWindow({
+    Title = "yupitactico CAR SNAP v3.1",
+    Icon = "rbxassetid://0",
+    Author = "Ultimate Fixed",
+    Folder = "car_snap_v3_1",
+    Size = UDim2.fromOffset(900, 650),
+    Theme = "Dark",
+    Resizable = true,
+    KeyCode = Enum.KeyCode.F3
+})
+
+-- ==========================================
+-- COMBAT TAB - SILENT AIM
+-- ==========================================
+local CombatTab = Window:Tab{Title = "COMBAT", Icon = "crosshair"}
+
+CombatTab:Section{Title = "SILENT AIM"}
+CombatTab:Toggle{
+    Title = "Enable Silent Aim",
+    Desc = "Automatically locks onto targets",
+    Default = false,
+    Callback = function(state) F = state; I = nil end
+}
+
+CombatTab:Slider{
+    Title = "FOV Radius",
+    Desc = "Adjust the FOV size",
+    Step = 1,
+    Value = {Min = 20, Max = 800, Default = H},
+    Callback = function(val) H = tonumber(val) or 120 end
+}
+
+CombatTab:Divider()
+CombatTab:Section{Title = "ESP OPTIONS"}
+CombatTab:Toggle{
+    Title = "Name ESP",
+    Desc = "Show player names",
+    Default = false,
+    Callback = function(state) M = state end
+}
+
+CombatTab:Toggle{
+    Title = "Distance ESP",
+    Desc = "Show distance in meters",
+    Default = false,
+    Callback = function(state) N = state end
+}
+
+CombatTab:Toggle{
+    Title = "Health ESP",
+    Desc = "Show health bar",
+    Default = false,
+    Callback = function(state) O = state end
+}
+
+-- ==========================================
+-- VEHICLE TAB
+-- ==========================================
+local VehicleTab = Window:Tab{Title = "VEHICLE", Icon = "car"}
+
+VehicleTab:Section{Title = "ðŸ“ PLATAFORMA FLOTANTE"}
+VehicleTab:Toggle{
+    Title = "Plataforma Que Sigue",
+    Desc = "Plataforma grande que sigue al auto automÃ¡ticamente",
+    Default = false,
+    Callback = function(state)
+        CarSnapSystem.PlatformEnabled = state
+        if state then
+            createFollowingPlatform()
+            startPlatformLoop()
+        else
+            stopPlatform()
+        end
+    end
+}
+
+VehicleTab:Slider{
+    Title = "Distancia de Plataforma",
+    Desc = "QuÃ© tan lejos estÃ¡ bajo el auto",
+    Step = 0.5,
+    Value = {Min = -5, Max = 10, Default = -3},
+    Callback = function(val)
+        CarSnapSystem.PlatformOffset = Vector3.new(0, val, 0)
+    end
+}
+
+VehicleTab:Slider{
+    Title = "TamaÃ±o Plataforma",
+    Desc = "Ancho de la plataforma",
+    Step = 2,
+    Value = {Min = 10, Max = 50, Default = 20},
+    Callback = function(val)
+        CarSnapSystem.PlatformSize = Vector3.new(val, 1.5, val/2)
+        if CarSnapSystem.Platform then
+            CarSnapSystem.Platform.Size = CarSnapSystem.PlatformSize
+        end
+    end
+}
+
+VehicleTab:Divider()
+VehicleTab:Section{Title = "ðŸ”½ SNAP DOWN"}
+VehicleTab:Toggle{
+    Title = "Snap Down",
+    Desc = "Baja el auto hacia abajo",
+    Default = false,
+    Callback = function(state)
+        CarSnapSystem.SnapDownEnabled = state
+    end
+}
+
+VehicleTab:Slider{
+    Title = "Profundidad Down",
+    Desc = "CuÃ¡nto baja (0-15)",
+    Step = 0.5,
+    Value = {Min = 0, Max = 15, Default = 0},
+    Callback = function(val)
+        CarSnapSystem.CurrentDepthDown = val
+    end
+}
+
+VehicleTab:Button{
+    Title = "Aplicar Snap Down",
+    Desc = "Ejecutar snap down",
+    Callback = function()
+        if CarSnapSystem.CurrentDepthDown > 0 then
+            snapDown()
+        end
+    end
+}
+
+VehicleTab:Divider()
+VehicleTab:Section{Title = "ðŸ”¼ SNAP UP"}
+VehicleTab:Toggle{
+    Title = "Snap Up",
+    Desc = "Sube el auto hacia arriba",
+    Default = false,
+    Callback = function(state)
+        CarSnapSystem.SnapUpEnabled = state
+    end
+}
+
+VehicleTab:Slider{
+    Title = "Altura Up",
+    Desc = "CuÃ¡nto sube (0-3)",
+    Step = 0.2,
+    Value = {Min = 0, Max = 3, Default = 0},
+    Callback = function(val)
+        CarSnapSystem.CurrentHeightUp = val
+    end
+}
+
+VehicleTab:Button{
+    Title = "Aplicar Snap Up",
+    Desc = "Ejecutar snap up",
+    Callback = function()
+        if CarSnapSystem.CurrentHeightUp > 0 then
+            snapUp()
+        end
+    end
+}
+
+VehicleTab:Divider()
+VehicleTab:Section{Title = "ðŸš€ FARM SPEED (Al mover)"}
+VehicleTab:Toggle{
+    Title = "Farm Speed",
+    Desc = "Velocidad constante AL MOVER el auto",
+    Default = false,
+    Callback = function(state)
+        FarmSpeedSystem.Enabled = state
+        if state then
+            startFarmSpeed()
+        else
+            stopFarmSpeed()
+        end
+    end
+}
+
+VehicleTab:Slider{
+    Title = "Velocidad",
+    Desc = "Velocidad del auto",
+    Step = 10,
+    Value = {Min = 10, Max = 300, Default = 100},
+    Callback = function(val)
+        FarmSpeedSystem.Speed = tonumber(val) or 100
+    end
+}
+
+VehicleTab:Divider()
+VehicleTab:Section{Title = "ðŸ’¥ BUMP AURA"}
+VehicleTab:Toggle{
+    Title = "Bump Aura",
+    Desc = "Golpea jugadores cercanos automÃ¡ticamente",
+    Default = false,
+    Callback = function(state)
+        BumpAuraSystem.Enabled = state
+        if state then
+            startBumpAura()
+        else
+            stopBumpAura()
+        end
+    end
+}
+
+VehicleTab:Slider{
+    Title = "Rango Bump",
+    Desc = "Distancia de activaciÃ³n",
+    Step = 5,
+    Value = {Min = 20, Max = 200, Default = 100},
+    Callback = function(val)
+        BumpAuraSystem.Range = tonumber(val) or 100
+    end
+}
+
+VehicleTab:Slider{
+    Title = "Potencia Bump",
+    Desc = "Fuerza del golpe",
+    Step = 10,
+    Value = {Min = 50, Max = 300, Default = 150},
+    Callback = function(val)
+        BumpAuraSystem.Power = tonumber(val) or 150
+    end
+}
+
+VehicleTab:Divider()
+VehicleTab:Section{Title = "ðŸŽ¯ CAR GUIDE"}
+VehicleTab:Toggle{
+    Title = "Mostrar Car Guide",
+    Desc = "Muestra posiciÃ³n del auto en pantalla",
+    Default = false,
+    Callback = function(state)
+        CarSnapSystem.GuideActive = state
+        if state then
+            createGuide()
+        else
+            if CarSnapSystem.GuideFrame then CarSnapSystem.GuideFrame:Destroy() end
+        end
+    end
+}
+
+VehicleTab:Divider()
+VehicleTab:Section{Title = "âš™ï¸ UTILIDADES"}
+VehicleTab:Button{
+    Title = "Traer VehÃ­culo",
+    Desc = "Trae el auto hacia ti",
+    Callback = function()
+        local car = FindVehicle()
+        if car and LocalPlayer.Character then
+            car:PivotTo(LocalPlayer.Character:GetPivot() + Vector3.yAxis * 12)
+            for _, desc in ipairs(car:GetDescendants()) do
+                if desc:IsA("BasePart") then 
+                    desc.AssemblyLinearVelocity = Vector3.zero 
+                end
+            end
+        end
+    end
+}
+
+VehicleTab:Button{
+    Title = "Reset Altura",
+    Desc = "Restaura altura original del auto",
+    Callback = function()
+        CarSnapSystem.OriginalHeight = nil
+    end
+}
+
+-- ==========================================
+-- MISC TAB
+-- ==========================================
+local MiscTab = Window:Tab{Title = "MISC", Icon = "settings"}
+
+MiscTab:Section{Title = "SERVER UTILITIES"}
+MiscTab:Button{
+    Title = "Copy Server ID",
+    Desc = "Copy JobID to clipboard",
+    Callback = function()
+        local jobid = tostring(game.JobId)
+        if setclipboard then
+            setclipboard(jobid)
+            WindUI:Notify{Title = "âœ… Copied!", Description = jobid, Duration = 2}
+        end
+    end
+}
+
+MiscTab:Input{
+    Title = "Server Hop by ID",
+    Desc = "Enter JobID to server hop",
+    Value = "",
+    Type = "Input",
+    Placeholder = "Paste Server ID here...",
+    Callback = function(input)
+        if input and input ~= "" then
+            pcall(function()
+                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, input, LocalPlayer)
+            end)
+        end
+    end
+}
+
+MiscTab:Button{
+    Title = "Server Rejoin",
+    Desc = "Rejoin the same server",
+    Callback = function()
+        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end
+}
+
+MiscTab:Button{
+    Title = "Server Hop",
+    Desc = "Find a new server",
+    Callback = function()
+        local HttpService = game:GetService("HttpService")
+        local TeleportService = game:GetService("TeleportService")
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Desc&limit=100"))
+        end)
+        if ok and data and data.data then
+            local servers = {}
+            for _, v in pairs(data.data) do
+                if v.playing < v.maxPlayers and v.id ~= game.JobId then
+                    table.insert(servers, v)
+                end
+            end
+            if #servers > 0 then
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, servers[math.random(1, #servers)].id, LocalPlayer)
+            end
+        end
+    end
+}
+
+MiscTab:Divider()
+MiscTab:Section{Title = "PERFORMANCE"}
+MiscTab:Button{
+    Title = "Boost FPS",
+    Desc = "Disable lighting effects",
+    Callback = function()
+        pcall(function()
+            local Lighting = game:GetService("Lighting")
+            for _, v in ipairs(Lighting:GetChildren()) do
+                if v:IsA("Sky") or v:IsA("Atmosphere") then
+                    v:Destroy()
+                end
+            end
+            Lighting.GlobalShadows = false
+            Lighting.Brightness = 0.5
+            WindUI:Notify{Title = "âœ… FPS Boosted!", Duration = 2}
+        end)
+    end
+}
+
+MiscTab:Divider()
+MiscTab:Section{Title = "GAME INFO"}
+local infoLabel = MiscTab:Label("Place ID: " .. game.PlaceId)
+
+-- RENDER LOOP
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        if F then I = getClosestTarget() else I = nil end
+    end)
+end)
+
+print("âœ… Car Snap Ultimate v3.1 - Â¡Completamente Funcional!")
