@@ -71,7 +71,8 @@ else
                 Slider = function() end,
                 Button = function() end,
                 Input = function() return {} end,
-                Divider = function() end
+                Divider = function() end,
+                Label = function() return {SetDesc = function() end} end -- Dummy for safety
             }
         end
     }
@@ -1244,11 +1245,14 @@ end)
 
 r.CharacterAdded:Connect(function(aN) s = aN end)
 
+-- ANTI LOCK / ANTI AIM LOOP (IMPROVED SPEED)
 b.Heartbeat:Connect(function()
     if ai().Sky and r.Character and r.Character:FindFirstChild("HumanoidRootPart") then
         local aN = r.Character.HumanoidRootPart
         local aO = aN.Velocity
-        local aP = math.rad(tick() * 1500 % 360)
+        -- Increased speed multiplier (3000 vs 1500)
+        local aP = math.rad(tick() * 3000 % 360)
+        -- Increased force amount
         local aQ = math.cos(aP) * ai().SkyAmount
         local aR = math.sin(aP) * ai().SkyAmount
         local aS = math.random(280, 480)
@@ -1902,12 +1906,16 @@ local a6 = a1:Toggle({
 })
 D:Register("AutoSprint", a6)
 
+-- IMPROVED ANTI LOCK / ANTI AIM
 local a7 = a1:Toggle({
-    Title = "Anti Lock",
+    Title = "Anti Aim / Anti Lock",
     Default = false,
     Callback = function(a7)
         ai().Sky = a7
-        if a7 then ai().SkyAmount = 1500 end
+        if a7 then 
+            -- Increased amount for stronger displacement
+            ai().SkyAmount = 2500 
+        end
     end
 })
 D:Register("AntiLock", a7)
@@ -2741,8 +2749,6 @@ end
 
 D:Register("SaveConfig",br)
 
-
-
 local bs=
 
 bk:Button
@@ -2766,8 +2772,6 @@ end
 
 
 D:Register("DeleteConfig",bs)
-
-
 
 if bq then
 
@@ -3545,154 +3549,120 @@ end
 
 
 
+-- BUY TAB WITH MONEY DISPLAY
 local BuyTab = B:Tab({Title = "Buy", Icon = "house"})
 
+BuyTab:Section({Title = "Economy & Crates"})
 
+-- --- MONEY DISPLAY LOGIC START ---
+local PlayerGui = r:WaitForChild("PlayerGui")
 
-BuyTab:Section(
+local function HandMoney()
+    pcall(function()
+        local TextLabel = PlayerGui:WaitForChild("TopRightHud"):WaitForChild("Holder"):WaitForChild("Frame"):WaitForChild("MoneyTextLabel")
+        return tonumber(TextLabel.Text:match('%$(%d+)'))
+    end)
+    return 0
+end
 
-    {
+local function ATMMoney()
+    local bankBalance = 0
+    pcall(function()
+        for _, v in ipairs(PlayerGui:GetDescendants()) do
+            if v:IsA('TextLabel') and string.find(v.Text, 'Bank Balance') then
+                local amount = tonumber(v.Text:match('%$(%d+)'))
+                if amount then 
+                    bankBalance = amount 
+                    break 
+                end
+            end
+        end
+    end)
+    return bankBalance
+end
 
-        Title = "Buy"
+-- Create Labels in UI to show the money
+local BankBalanceLabel = BuyTab:Label({Title = "Bank Balance", Text = "$0"})
+local HandBalanceLabel = BuyTab:Label({Title = "Hand Cash", Text = "$0"})
 
-    }
+-- Start the update loop
+task.spawn(function()
+    while task.wait(0.2) do
+        local atm = ATMMoney()
+        local hand = HandMoney()
+        
+        -- Update the UI Labels with formatted text
+        BankBalanceLabel:SetDesc('<b><font color="#00FF00">$' .. tostring(atm) .. '</font></b>')
+        HandBalanceLabel:SetDesc('<b><font color="#00f2ff">$' .. tostring(hand) .. '</font></b>')
+    end
+end)
+-- --- MONEY DISPLAY LOGIC END ---
 
-)
-
-
+BuyTab:Divider()
 
 local CrateController = require(game:GetService("ReplicatedStorage").Modules.Game.CrateSystem.Crate)
-
-
-
 local EnabledSkip = false
 
-
-
-local buu11= BuyTab:Toggle({
-
-    Title = "Skip animation",
-
-    Desc = "",
-
+local buu11 = BuyTab:Toggle({
+    Title = "Skip Crate Animation",
+    Desc = "Instantly opens crates",
     Value = false,
-
     Callback = function(v)
-
         EnabledSkip = v
-
-
-
         if EnabledSkip then
-
             task.spawn(function()
-
                 while EnabledSkip do
-
                     task.wait()
-
-
-
                     if CrateController.class and CrateController.class.objects then
-
                         for _, crate in pairs(CrateController.class.objects) do
-
                             pcall(function()
-
                                 if crate.states and crate.states.open and crate.states.open.set then
-
                                     crate.states.open.set(true)
-
                                 end
-
                                 if CrateController.skipping and CrateController.skipping.set then
-
                                     CrateController.skipping.set(true)
-
                                 end
-
                             end)
-
                         end
-
                     end
-
-
-
                     if CrateController.spinning and CrateController.skip_spin then
-
                         if not CrateController.spinning.get() then
-
                             pcall(function()
-
                                 CrateController.skip_spin()
-
                             end)
-
                         end
-
                     end
-
                 end
-
             end)
-
         else
-
-
-
             pcall(function()
-
                 if CrateController.skipping and CrateController.skipping.set then
-
                     CrateController.skipping.set(false)
-
                 end
-
             end)
-
         end
-
     end
-
 })
-
-D:Register("Skip animation",buu11)
-
-
+D:Register("Skip animation", buu11)
 
 local VehicleTab = B:Tab({Title = "Car", Icon = "car"})
 
-
-
 VehicleTab:Section(
-
     {
-
         Title = "Car"
-
     }
-
 )
 
-
-
 VehicleTab:Button({
-
         Title = "Pull Car Owner",
-
         Desc = "",
-
         Callback = function()
-
             local Players = game:GetService("Players")
-
 local Client = Players.LocalPlayer
 
 
 
 local Character = Client.Character or Client.CharacterAdded:Wait()
-
 local RootPart = Character:WaitForChild("HumanoidRootPart")
 
 
@@ -3702,51 +3672,27 @@ local Vehicles = workspace:WaitForChild("Vehicles")
 
 
 for _, vehicle in pairs(Vehicles:GetChildren()) do
-
     if vehicle:IsA("Model") then
-
         local ownerId = vehicle:GetAttribute("OwnerUserId")
-
         
-
         if ownerId and ownerId == Client.UserId then
-
             local offset = CFrame.new(math.random(-5,5), 3, math.random(-15,-5))
-
             
-
             if vehicle.PrimaryPart then
-
                 vehicle:SetPrimaryPartCFrame(RootPart.CFrame * offset)
-
             else
-
                 local part = vehicle:FindFirstChildWhichIsA("BasePart")
-
                 if part then
-
                     part.CFrame = RootPart.CFrame * offset
-
                 end
-
             end
-
         end
-
     end
-
 end
-
             B:Notify({
-
                 Title = "Button",
-
                 Desc = "Action performed successfully.",
-
                 Time = 3
-
             })
-
         end
-
     })
