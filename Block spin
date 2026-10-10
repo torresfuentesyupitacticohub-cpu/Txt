@@ -1,3 +1,49 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local RunService = game:GetService("RunService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+
+-- Variable global para controlar el auto hit
+local autoEnabled = false
+local renderConn, dragConn
+local lastClick = 0
+
+-- Load the game's slider minigame module
+local ok, err = pcall(function()
+    SliderMinigame = require(ReplicatedStorage.Modules.Game.Minigames.SliderMinigame)
+end)
+if not ok then warn("Failed to load SliderMinigame:", err) end
+
+-- Lógica del Auto Hit
+local function autoHit()
+    pcall(function()
+        if not (SliderMinigame and SliderMinigame.enabled and SliderMinigame.enabled.get()) then
+            return
+        end
+
+        local needle = SliderMinigame.needle_pos.get()
+        local target = SliderMinigame.target_pos.get()
+        local size = SliderMinigame.target_size.get()
+
+        -- Hit window: 70% of half the target's size
+        local tolerance = (type(size) == "number" and size > 0) and (size / 2) * 0.7 or 0.02
+
+        if math.abs(needle - target) <= tolerance and tick() - lastClick > 0.5 then
+            lastClick = tick()
+            local cam = workspace.CurrentCamera
+            local x, y = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+            task.wait(0.03)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        end
+    end)
+end
+
+-- Conexión al RenderStepped para ejecutar el auto hit
+renderConn = RunService.RenderStepped:Connect(function()
+    if autoEnabled then autoHit() end
+end)
+
 local a = game:GetService("Players")
 local b = game:GetService("RunService")
 local c = game:GetService("ReplicatedStorage")
@@ -1485,6 +1531,29 @@ D:Register("FriendsList", aR)
 
 pcall(function() aN:Divider() end)
 
+-- ==========================================================
+-- BOTÓN AGREGADO PARA EL MINIJUEGO (AUTO HIT)
+-- ==========================================================
+aN:Section({Title = "Minigames"})
+
+local minigameToggle = aN:Toggle({
+    Title = "Auto Hit Minigame",
+    Desc = "Hace clic automáticamente cuando la aguja está en el objetivo",
+    Default = false,
+    Callback = function(value)
+        autoEnabled = value -- Conecta el botón con la variable global
+        
+        if A then 
+            A:Notify({
+                Title = value and "✅ Auto Minigame Activado" or "❌ Auto Minigame Desactivado", 
+                Duration = 2
+            }) 
+        end
+    end
+})
+D:Register("AutoMinigameHit", minigameToggle)
+-- ==========================================================
+
 local aS = B:Tab({Title = "Weapon Mods", Icon = "layers"})
 aS:Section({Title = "Mods"})
 
@@ -2767,8 +2836,6 @@ end
 
 D:Register("DeleteConfig",bs)
 
-
-
 if bq then
 
 bq(D)
@@ -2780,8 +2847,6 @@ end
 
 
 local bt=j.tween
-
-
 
 j.tween=function(bu,bv,bw)
 
@@ -2802,8 +2867,6 @@ end
 return bt(bu,bv,bw)
 
 end
-
-
 
 local bu,bv=
 
@@ -2847,13 +2910,9 @@ end
 
 end
 
-
-
 task.wait(2)
 
 print"Bypass"
-
-
 
 local function lockTool(bw)
 
@@ -2873,8 +2932,6 @@ end
 
 end
 
-
-
 local function setupBackpack(bw)
 
 if not bw then
@@ -2892,8 +2949,6 @@ end
 bw.ChildAdded:Connect(lockTool)
 
 end
-
-
 
 local function init()
 
@@ -2923,11 +2978,7 @@ end
 
 end
 
-
-
 init()
-
-
 
 r.CharacterAdded:Connect(
 
@@ -2941,11 +2992,7 @@ end
 
 )
 
-
-
 task.wait(1)
-
-
 
 print"Bypass hotbar inf"
 
@@ -2956,8 +3003,6 @@ if not bw then
 return
 
 end
-
-
 
 if bw:FindFirstChild"UnlocksAtText"then
 
@@ -2970,8 +3015,6 @@ if bw:FindFirstChild"EmoteName"then
 bw.EmoteName.Visible=true
 
 end
-
-
 
 n.on_click(
 
@@ -2987,8 +3030,6 @@ return
 
 end
 
-
-
 if l.current_emote_playing.get()==bw then
 
 l.current_emote_playing.set(nil)
@@ -2999,19 +3040,13 @@ l.current_emote_playing.set(bw)
 
 end
 
-
-
 task.wait(0.12)
-
-
 
 l.enabled.set(false)
 
 end
 
 )
-
-
 
 l.current_emote_playing.hook(
 
@@ -3029,8 +3064,6 @@ end
 
 end
 
-
-
 local function hookAllEmotes()
 
 for bw,bx in pairs(m)do
@@ -3043,11 +3076,7 @@ end
 
 end
 
-
-
 hookAllEmotes()
-
-
 
 r.CharacterAdded:Connect(
 
@@ -3061,11 +3090,7 @@ end
 
 )
 
-
-
 task.wait(2)
-
-
 
 local bw
 
@@ -3076,8 +3101,6 @@ task.wait()
 until workspace.CurrentCamera
 
 bw=workspace.CurrentCamera
-
-
 
 local function getRarityColor(bx)
 
@@ -3108,10 +3131,6 @@ end
 return Color3.fromRGB(255,255,255)
 
 end
-
-
-
-
 
 local function cleanupItemDrawings()
 
@@ -3197,10 +3216,6 @@ end
 
 end
 
-
-
-
-
 b.RenderStepped:Connect(
 
 function()
@@ -3213,8 +3228,6 @@ return
 
 end
 
-
-
 local bx=v.Character and v.Character:FindFirstChild"HumanoidRootPart"
 
 if not bx then
@@ -3222,10 +3235,6 @@ if not bx then
 return
 
 end
-
-
-
-
 
 for by,bz in pairs(w)do
 
@@ -3244,8 +3253,6 @@ bz.highlight.Enabled=false
 end
 
 end
-
-
 
 local by={}
 
@@ -3289,15 +3296,11 @@ end
 
 )
 
-
-
 for bz=1,math.min(20,#by)do
 
 local bA=by[bz].item
 
 local bB=w[bA]
-
-
 
 if not bB then
 
@@ -3313,25 +3316,17 @@ amount=Drawing.new"Text"
 
 }
 
-
-
 bB.circle.Thickness=2
 
 bB.circle.Transparency=0.7
 
 bB.circle.Filled=false
 
-
-
 bB.innerCircle.Thickness=2
 
 bB.innerCircle.Transparency=1
 
 bB.innerCircle.Filled=true
-
-
-
-
 
 bB.name.Outline=true
 
@@ -3343,10 +3338,6 @@ bB.name.Size=16
 
 bB.name.Font=4
 
-
-
-
-
 bB.amount.Outline=true
 
 bB.amount.OutlineColor=Color3.fromRGB(0,0,0)
@@ -3357,13 +3348,9 @@ bB.amount.Size=13
 
 bB.amount.Color=Color3.fromRGB(200,200,200)
 
-
-
 w[bA]=bB
 
 end
-
-
 
 if not bB.highlight or not bB.highlight.Parent then
 
@@ -3383,8 +3370,6 @@ bB.highlight=bC
 
 end
 
-
-
 local bC,bD=bw:WorldToViewportPoint(bA.PickUpZone.Position)
 
 if bD then
@@ -3392,8 +3377,6 @@ if bD then
 local bE=getRarityColor(bA)
 
 local bF=math.clamp(aA/bC.Z,3,6)
-
-
 
 if bB.highlight then
 
@@ -3405,8 +3388,6 @@ bB.highlight.Enabled=true
 
 end
 
-
-
 bB.circle.Position=Vector2.new(bC.X,bC.Y)
 
 bB.circle.Radius=bF+5
@@ -3414,8 +3395,6 @@ bB.circle.Radius=bF+5
 bB.circle.Color=bE
 
 bB.circle.Visible=true
-
-
 
 bB.innerCircle.Position=Vector2.new(bC.X,bC.Y)
 
@@ -3425,8 +3404,6 @@ bB.innerCircle.Color=bE
 
 bB.innerCircle.Visible=true
 
-
-
 bB.name.Color=bE
 
 bB.name.Position=Vector2.new(bC.X,bC.Y-bF-20)
@@ -3434,8 +3411,6 @@ bB.name.Position=Vector2.new(bC.X,bC.Y-bF-20)
 bB.name.Text=bA.Name
 
 bB.name.Visible=true
-
-
 
 local bG=bA:GetAttribute"Amount"or 1
 
@@ -3468,8 +3443,6 @@ end
 end
 
 )
-
-
 
 a.PlayerRemoving:Connect(
 
@@ -3543,11 +3516,7 @@ end
 
 )
 
-
-
 local BuyTab = B:Tab({Title = "Buy", Icon = "house"})
-
-
 
 BuyTab:Section(
 
@@ -3559,15 +3528,9 @@ BuyTab:Section(
 
 )
 
-
-
 local CrateController = require(game:GetService("ReplicatedStorage").Modules.Game.CrateSystem.Crate)
 
-
-
 local EnabledSkip = false
-
-
 
 local buu11= BuyTab:Toggle({
 
@@ -3581,8 +3544,6 @@ local buu11= BuyTab:Toggle({
 
         EnabledSkip = v
 
-
-
         if EnabledSkip then
 
             task.spawn(function()
@@ -3590,8 +3551,6 @@ local buu11= BuyTab:Toggle({
                 while EnabledSkip do
 
                     task.wait()
-
-
 
                     if CrateController.class and CrateController.class.objects then
 
@@ -3617,8 +3576,6 @@ local buu11= BuyTab:Toggle({
 
                     end
 
-
-
                     if CrateController.spinning and CrateController.skip_spin then
 
                         if not CrateController.spinning.get() then
@@ -3639,8 +3596,6 @@ local buu11= BuyTab:Toggle({
 
         else
 
-
-
             pcall(function()
 
                 if CrateController.skipping and CrateController.skipping.set then
@@ -3659,11 +3614,7 @@ local buu11= BuyTab:Toggle({
 
 D:Register("Skip animation",buu11)
 
-
-
 local VehicleTab = B:Tab({Title = "Car", Icon = "car"})
-
-
 
 VehicleTab:Section(
 
@@ -3675,8 +3626,6 @@ VehicleTab:Section(
 
 )
 
-
-
 VehicleTab:Button({
 
         Title = "Pull Car Owner",
@@ -3686,67 +3635,35 @@ VehicleTab:Button({
         Callback = function()
 
             local Players = game:GetService("Players")
-
 local Client = Players.LocalPlayer
 
-
-
 local Character = Client.Character or Client.CharacterAdded:Wait()
-
 local RootPart = Character:WaitForChild("HumanoidRootPart")
-
-
 
 local Vehicles = workspace:WaitForChild("Vehicles")
 
-
-
 for _, vehicle in pairs(Vehicles:GetChildren()) do
-
     if vehicle:IsA("Model") then
-
         local ownerId = vehicle:GetAttribute("OwnerUserId")
-
         
-
         if ownerId and ownerId == Client.UserId then
-
             local offset = CFrame.new(math.random(-5,5), 3, math.random(-15,-5))
-
             
-
             if vehicle.PrimaryPart then
-
                 vehicle:SetPrimaryPartCFrame(RootPart.CFrame * offset)
-
             else
-
                 local part = vehicle:FindFirstChildWhichIsA("BasePart")
-
                 if part then
-
                     part.CFrame = RootPart.CFrame * offset
-
                 end
-
             end
-
         end
-
     end
-
 end
-
             B:Notify({
-
                 Title = "Button",
-
                 Desc = "Action performed successfully.",
-
                 Time = 3
-
             })
-
         end
-
     })
