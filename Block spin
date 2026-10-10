@@ -72,7 +72,7 @@ else
                 Button = function() end,
                 Input = function() return {} end,
                 Divider = function() end,
-                Label = function() return {SetDesc = function() end} end
+                Label = function() return {SetDesc = function() end} end -- Dummy for safety
             }
         end
     }
@@ -130,8 +130,10 @@ ai().SkyAmount = 1000
 local aj = false
 local ak = false
 
+-- FIXED JUMP HEIGHT TO 30 (Not adjustable)
 local JumpHeight = 30 
 
+-- VARIABLES PARA HIDE NAME RAINBOW
 local hideNameEnabled = false
 local playerNameLabel = nil
 local originalNameText = ""
@@ -172,6 +174,7 @@ pcall(function()
     end
 end)
 
+-- FUNCIÓN PARA ENCONTRAR EL LABEL DEL NOMBRE DEL JUGADOR LOCAL
 local function findPlayerNameLabel()
     if playerNameLabel then return playerNameLabel end
     
@@ -194,6 +197,7 @@ local function findPlayerNameLabel()
     return playerNameLabel
 end
 
+-- GENERADOR DE COLOR RAINBOW
 local function getRainbowColor(offset)
     local hue = (tick() * 0.8 + offset) % 1
     return Color3.fromHSV(hue, 1, 1)
@@ -1007,32 +1011,6 @@ local function isShotgun()
     return false
 end
 
--- SISTEMA DE TIMING PARA AIM PART RANDOM
-local RandomAimTimer = tick()
-local CurrentRandomPart = "Head"
-local RandomCycleTime = 6 -- 2s head + 4s torso = 6s total
-
-local function getRandomAimPart()
-    if SelectedAimPart ~= "Random" then
-        return SelectedAimPart
-    end
-    
-    local elapsed = tick() - RandomAimTimer
-    if elapsed >= RandomCycleTime then
-        RandomAimTimer = tick()
-        elapsed = 0
-    end
-    
-    -- First 2 seconds: Head, Next 4 seconds: Torso
-    if elapsed < 2 then
-        CurrentRandomPart = "Head"
-    else
-        CurrentRandomPart = "HumanoidRootPart"
-    end
-    
-    return CurrentRandomPart
-end
-
 local aM_hook
 if E and E.FireServer then
     local aN = pcall(function()
@@ -1040,22 +1018,23 @@ if E and E.FireServer then
             if aN ~= E then return aM_hook(aN, ...) end
             local aO = {...}
             
+            -- LOGICA DE SILENT AIM MEJORADA
             if F and aO[2] == "shoot_gun" and I then
                 local aP = I.Character and I.Character:FindFirstChild("Head")
                 local aQ = I.Character and I.Character:FindFirstChild("HumanoidRootPart")
                 local aR = I.Character and I.Character:FindFirstChild("Humanoid")
 
                 if aP and aQ and aR then
-                    local TargetPart = aP
+                    -- Determinar la parte del cuerpo a atacar
+                    local TargetPart = aP -- Default Head
                     
-                    local aimPartChoice = getRandomAimPart()
-                    if aimPartChoice == "HumanoidRootPart" then
+                    if SelectedAimPart == "HumanoidRootPart" then
                         TargetPart = aQ
-                    elseif aimPartChoice == "Random" then
+                    elseif SelectedAimPart == "Random" then
                         if math.random(1, 2) == 1 then
-                            TargetPart = aP
+                            TargetPart = aP -- Head
                         else
-                            TargetPart = aQ
+                            TargetPart = aQ -- Torso/HRP
                         end
                     end
 
@@ -1172,10 +1151,14 @@ b.RenderStepped:Connect(function()
             local aO = aN.Character
             local aP = aO:FindFirstChild("Humanoid")
             
-            local SelectedAimPartLocal = getRandomAimPart()
+            -- Logic for Tracer Line target based on selection
+            local SelectedAimPartLocal = SelectedAimPart or "Head"
             local TargetPartForTracer
             
-            if SelectedAimPartLocal == "HumanoidRootPart" then
+            if SelectedAimPartLocal == "Random" then
+                 -- For visual tracer, we just pick one randomly per frame or stick to head for stability
+                 TargetPartForTracer = aO:FindFirstChild("Head") or aO:FindFirstChild("HumanoidRootPart")
+            elseif SelectedAimPartLocal == "HumanoidRootPart" then
                 TargetPartForTracer = aO:FindFirstChild("HumanoidRootPart")
             else
                 TargetPartForTracer = aO:FindFirstChild("Head")
@@ -1250,6 +1233,7 @@ b.RenderStepped:Connect(function()
             end
         end
         
+        -- EFECTO RAINBOW PARA HIDE NAME
         if hideNameEnabled then
             local label = findPlayerNameLabel()
             if label then
@@ -1261,11 +1245,14 @@ end)
 
 r.CharacterAdded:Connect(function(aN) s = aN end)
 
+-- ANTI LOCK / ANTI AIM LOOP (IMPROVED SPEED)
 b.Heartbeat:Connect(function()
     if ai().Sky and r.Character and r.Character:FindFirstChild("HumanoidRootPart") then
         local aN = r.Character.HumanoidRootPart
         local aO = aN.Velocity
+        -- Increased speed multiplier (3000 vs 1500)
         local aP = math.rad(tick() * 3000 % 360)
+        -- Increased force amount
         local aQ = math.cos(aP) * ai().SkyAmount
         local aR = math.sin(aP) * ai().SkyAmount
         local aS = math.random(280, 480)
@@ -1425,18 +1412,14 @@ a.PlayerRemoving:Connect(function(aN)
     end
 end)
 
--- LOOP DE ACTUALIZACIÓN DE HIGHLIGHT CADA 8 SEGUNDOS
 task.spawn(function()
-    while task.wait(8) do
-        if highlightEnabled then
-            for a1, a2 in pairs(game.Players:GetPlayers()) do
-                updateHighlight(a2)
-            end
-        end
+    while task.wait(0.01) do
+        if highlightEnabled then updateHighlights() end
     end
 end)
-
 loadESP()
+
+-- UI TABS START HERE
 
 local aN = B:Tab({Title = "Combat", Icon = "crosshair"})
 aN:Section({Title = "Gun"})
@@ -1471,13 +1454,13 @@ local aQ = aN:Slider({
 })
 D:Register("FOVRadius", aQ)
 
+-- NEW DROPDOWN FOR AIM PART
 local aPartSelect = aN:Dropdown({
     Title = "Aim Part",
     Values = {"Head", "HumanoidRootPart", "Random"},
     Default = "Head",
     Callback = function(val)
         SelectedAimPart = val
-        RandomAimTimer = tick() -- Reset timer when changing
     end
 })
 D:Register("AimPart", aPartSelect)
@@ -1714,19 +1697,30 @@ D:Register("AutoAttack_Enabled", aV_toggle)
 local aW = B:Tab({Title = "Visuals", Icon = "eye"})
 aW:Section({Title = "View"})
 
--- ESP INVENTARIO ACTUALIZA CADA 15 SEGUNDOS
+-- MODIFIED INVENTORY ESP TO UPDATE EVERY 13 SECONDS
 local aX = aW:Toggle({
     Title = "Inventory Viewer",
     Default = false,
     Callback = function(aX)
         aw = aX
         if aX then
+            -- Initial load
             for aY, aZ in ipairs(a:GetPlayers()) do
                 if aZ ~= r and aZ.Character then createBillboardForPlayer(aZ) end
             end
             
+            -- Disconnect old loop if exists
             if ax then ax:Disconnect() end
             
+            -- New loop every 13 seconds
+            ax = b.Heartbeat:Connect(function()
+               -- We use a counter or just wait inside a spawn to avoid blocking heartbeat too much, 
+               -- but connecting to heartbeat and waiting is bad practice. 
+               -- Better to use a separate task loop.
+            end)
+            ax:Disconnect() -- Disconnect the heartbeat connector immediately
+            
+            -- Start proper loop
             task.spawn(function()
                 while aw do
                     for aY, aZ in ipairs(a:GetPlayers()) do
@@ -1734,7 +1728,7 @@ local aX = aW:Toggle({
                             createBillboardForPlayer(aZ)
                         end
                     end
-                    task.wait(15) -- ACTUALIZA CADA 15 SEGUNDOS
+                    task.wait(13) -- WAIT 13 SECONDS
                 end
             end)
 
@@ -1767,9 +1761,8 @@ D:Register("HealthESP", aZ)
 local a_ = aW:Toggle({Title = "Distance", Default = false, Callback = function(a_) N = a_ end})
 D:Register("DistanceESP", a_)
 
--- HIGHLIGHT VERDE QUE ACTUALIZA CADA 8 SEGUNDOS
 local a0 = aW:Toggle({
-    Title = "Highlight (Green)",
+    Title = "Highlight",
     Default = false,
     Callback = function(a0)
         highlightEnabled = a0
@@ -1791,8 +1784,8 @@ function updateHighlight(a1)
         local a3 = Instance.new("Highlight")
         a3.Name = "PlayerHighlight"
         a3.Adornee = a1.Character
-        a3.FillColor = Color3.fromRGB(0, 255, 0) -- COLOR VERDE
-        a3.OutlineColor = Color3.fromRGB(0, 255, 0) -- COLOR VERDE
+        a3.FillColor = Color3.fromRGB(136, 0, 153)
+        a3.OutlineColor = Color3.fromRGB(136, 0, 153)
         a3.Parent = workspace
         aB[a1] = a3
     end
@@ -1846,6 +1839,9 @@ local a4 = a1:Toggle({
 })
 D:Register("JumpPower", a4)
 
+-- REMOVED SLIDER FOR JUMP HEIGHT, IT IS NOW FIXED AT 30
+-- The variable JumpHeight is set to 30 at the top of the script.
+
 local a5 = {}
 function a5.send(...)
     local a6 = {...}
@@ -1883,9 +1879,11 @@ local a6 = a1:Toggle({
                     if A then A:Notify({Title = "✅ INF STAMINA", Duration = 3}) end
                 else
                     as = false
+                    -- AutoSprintToggle:Set(false)
                 end
             else
                 as = false
+                -- AutoSprintToggle:Set(false)
             end
         else
             if ai().AutoSprintLoop then
@@ -1908,12 +1906,14 @@ local a6 = a1:Toggle({
 })
 D:Register("AutoSprint", a6)
 
+-- IMPROVED ANTI LOCK / ANTI AIM
 local a7 = a1:Toggle({
     Title = "Anti Aim / Anti Lock",
     Default = false,
     Callback = function(a7)
         ai().Sky = a7
         if a7 then 
+            -- Increased amount for stronger displacement
             ai().SkyAmount = 2500 
         end
     end
@@ -1976,6 +1976,7 @@ local ba = a1:Toggle({
 })
 D:Register("AntiRagdoll", ba)
 
+-- HIDE NAME INTEGRADO EN EL MENÚ PRINCIPAL CON RAINBOW TEXT
 local bb = a1:Toggle({
     Title = "Hide Name",
     Default = false,
@@ -2092,599 +2093,1512 @@ local buu = a1:Toggle({
     end
 })
 
+
 D:Register("Health Blood",buu)
 
 a1:Divider()
 
 a1:Section({Title = "PC HOLD (Z)"})
 
-local bd = a1:Toggle({
-    Title="Snap Under Map",
-    Default=false,
-    Callback=function(bd)
-        W=bd
-        if W then
-            ac=ac+1
-            if ac<2 then
-                return
-            end
-            Z=u and u.Position.Y or nil
-            V=true
-            performTeleport()
-        else
-            V=false
-            X=nil
-            Z=nil
-        end
-    end
-})
+
+
+local bd =
+a1:Toggle
+
+{
+
+Title="Snap Under Map",
+
+Default=false,
+
+Callback=function(bd)
+
+W=bd
+
+
+
+if W then
+
+ac=ac+1
+
+
+
+if ac<2 then
+
+return
+
+end
+
+
+
+Z=u and u.Position.Y or nil
+
+V=true
+
+performTeleport()
+
+else
+
+V=false
+
+X=nil
+
+Z=nil
+
+end
+
+end
+
+}
+
+
+
+
 
 D:Register("SnapUnderMap",bd)
 
-local be = a1:Slider({
-    Title="Snap:",
-    Step=1,
-    Value={Min=1,Max=300,Default=10},
-    Callback=function(be)
-        Y=be
-        if V and u and Z then
-            local bf = Vector3.new(u.Position.X,Z-Y,u.Position.Z)
-            u.CFrame=CFrame.new(bf)
-            X=bf.Y
-        end
-    end
-})
+local be=
+
+a1:Slider
+
+{
+
+Title="Snap:",
+
+Step=1,
+
+Value={Min=1,Max=300,Default=10},
+
+Callback=function(be)
+
+Y=be
+
+if V and u and Z then
+
+local bf=
+
+Vector3.new(u.Position.X,Z-Y,u.Position.Z)
+
+u.CFrame=CFrame.new(bf)
+
+X=bf.Y
+
+end
+
+end
+
+}
+
+
 
 D:Register("SnapHeight",be)
 
 local bf=B:Tab{Title="Players",Icon="person-standing"}
+
 bf:Section{Title="Players"}
 
 local bg=Instance.new("Folder",g)
+
 local bh=Instance.new("Part",bg)
+
 Instance.new("Attachment",bh)
+
 bh.Anchored=true
+
 bh.CanCollide=false
+
 bh.Transparency=1
 
-local bi = bf:Toggle({
-    Title="Auto Finnish",
-    Default=false,
-    Callback=function(bi)
-        ad=bi
-        if bi then
-            applyToAll()
-            if A then
-                A:Notify{Title="✅ Auto Finish Enabled",Description="✅ Auto Enabled",Duration=3}
-            end
-        else
-            if A then
-                A:Notify{Title="❌ Auto Disabled",Description="❌ Auto Disabled",Duration=3}
-            end
-        end
-    end
-})
+local bi=
+
+bf:Toggle
+
+{
+
+Title="Auto Finnish",
+
+Default=false,
+
+Callback=function(bi)
+
+ad=bi
+
+if bi then
+
+applyToAll()
+
+if A then
+
+A:Notify{Title="✅ Auto Finish Enabled",Description="✅ Auto Enabled",Duration=3}
+
+end
+
+else
+
+if A then
+
+A:Notify{Title="❌ Auto Disabled",Description="❌ Auto Disabled",Duration=3}
+
+end
+
+end
+
+end
+
+}
+
+
 
 D:Register("AutoFinnish",bi)
+
 bf:Divider()
+
+
 
 local bk=B:Tab{Title="Settings",Icon="warehouse"}
 
+
+
 local bl=game.PlaceId
 
-bk:Input({
-    Title="Server Hop by ID",
-    Value="",
-    InputIcon="send",
-    Type="Input",
-    Placeholder="id sever here!",
-    Callback=function(bm)
-        if not bm or bm=="" then
-            return
-        end
 
-        local bn={}
-        for bo in string.gmatch(bm,"[%w%-]+") do
-            table.insert(bn,bo)
-        end
 
-        if #bn==0 then
-            return
-        end
 
-        for bo,bp in ipairs(bn) do
-            print("Warping to server:",bp)
-            task.wait(0.5)
-            pcall(function()
-                game:GetService("TeleportService"):TeleportToPlaceInstance(bl,bp,r)
-            end)
-        end
-    end
-})
 
-bk:Button({
-    Title="Server Rejoin",
-    Desc="Come back old sever",
-    Callback=function()
-        game:GetService("TeleportService"):TeleportToPlaceInstance(
-            game.PlaceId,
-            game.JobId,
-            game.Players.LocalPlayer
-        )
-    end
-})
+bk:Input
 
-bk:Button({
-    Title="Server Hop",
-    Desc="Hop to a new server (sometime don't work)",
-    Locked=false,
-    Callback=function()
-        local bn=104715542330896
-        local bo=game:GetService("HttpService")
-        local bp=game:GetService("TeleportService")
+{
 
-        local bq,br = pcall(function()
-            return bo:JSONDecode(
-                game:HttpGet(
-                    "https://games.roblox.com/v1/games/"..
-                    bn.."/servers/Public?sortOrder=Desc&limit=100"
-                )
-            )
-        end)
+Title="Server Hop by ID",
 
-        if not bq or not br or not br.data then
-            warn("Could not fetch server data")
-            return
-        end
+Value="",
 
-        local bs={}
-        for bt,bu in ipairs(br.data) do
-            if bu.playing<bu.maxPlayers and bu.id~=game.JobId then
-                table.insert(bs,bu)
-            end
-        end
+InputIcon="send",
 
-        if #bs==0 then
-            warn("No empty servers found")
-            return
-        end
+Type="Input",
 
-        table.sort(bs, function(bt,bu)
-            return bt.playing>bu.playing
-        end)
+Placeholder="id sever here!",
 
-        local bt=bs[1]
+Callback=function(bm)
 
-        game.StarterGui:SetCore("SendNotification", {
-            Title="Server Hop",
-            Text="Joining populated server...",
-            Duration=3
-        })
+if not bm or bm==""then
 
-        bp:TeleportToPlaceInstance(bn,bt.id,game.Players.LocalPlayer)
-    end
-})
+return
+
+end
+
+
+
+local bn={}
+
+for bo in string.gmatch(bm,"[%w%-]+")do
+
+table.insert(bn,bo)
+
+end
+
+
+
+if#bn==0 then
+
+return
+
+end
+
+
+
+for bo,bp in ipairs(bn)do
+
+print("Warping to server:",bp)
+
+task.wait(0.5)
+
+pcall(
+
+function()
+
+game:GetService"TeleportService":TeleportToPlaceInstance(bl,bp,r)
+
+end
+
+)
+
+end
+
+end
+
+}
+
+
+
+
+
+bk:Button
+
+{
+
+Title="Server Rejoin",
+
+Desc="Come back old sever",
+
+Callback=function()
+
+game:GetService"TeleportService":TeleportToPlaceInstance(
+
+game.PlaceId,
+
+game.JobId,
+
+game.Players.LocalPlayer
+
+)
+
+end
+
+}
+
+
+
+
+
+game:GetService"HttpService"local bm=
+
+game.PlaceId
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+bk:Button
+
+{
+
+Title="Server Hop",
+
+Desc="Hop to a new server (sometime don't work)",
+
+Locked=false,
+
+Callback=function()
+
+local bn=104715542330896
+
+local bo=game:GetService"HttpService"
+
+local bp=game:GetService"TeleportService"
+
+
+
+local bq,br=
+
+pcall(
+
+function()
+
+return bo:JSONDecode(
+
+game:HttpGet(
+
+"https://games.roblox.com/v1/games/"..
+
+bn.."/servers/Public?sortOrder=Desc&limit=100"
+
+)
+
+)
+
+end
+
+)
+
+
+
+if not bq or not br or not br.data then
+
+warn"Could not fetch server data"
+
+return
+
+end
+
+
+
+local bs={}
+
+for bt,bu in ipairs(br.data)do
+
+if bu.playing<bu.maxPlayers and bu.id~=game.JobId then
+
+table.insert(bs,bu)
+
+end
+
+end
+
+
+
+if#bs==0 then
+
+warn"No empty servers found"
+
+return
+
+end
+
+
+
+table.sort(
+
+bs,
+
+function(bt,bu)
+
+return bt.playing>bu.playing
+
+end
+
+)
+
+
+
+local bt=bs[1]
+
+
+
+game.StarterGui:SetCore(
+
+"SendNotification",
+
+{
+
+Title="Server Hop",
+
+Text="Joining populated server...",
+
+Duration=3
+
+}
+
+)
+
+
+
+bp:TeleportToPlaceInstance(bn,bt.id,game.Players.LocalPlayer)
+
+end
+
+}
+
+
+
+
 
 bk:Divider()
 
-local bn = bk:Button({
-    Title="Claim All Quest",
-    Callback=function()
-        task.spawn(function()
-            local bn,bo = pcall(function()
-                local bn=game:GetService("Players")
-                local bo=game:GetService("ReplicatedStorage")
-                local bp=bn.LocalPlayer
 
-                local function findCounter()
-                    for bq,br in ipairs(getgc and getgc(true) or {}) do
-                        if typeof(br)=="table" and rawget(br,"event") and rawget(br,"func") then
-                            return br
-                        end
-                    end
-                    return nil
-                end
-                local bq=findCounter()
-                if not bq then
-                    return
-                end
 
-                local br={}
-                function br.get(...)
-                    local bs={...}
-                    bq.func=(bq.func or 0)+1
-                    local bt=bo:WaitForChild("Remotes"):WaitForChild("Get")
-                    return bt:InvokeServer(bq.func,table.unpack(bs))
-                end
-                local bs = bp:WaitForChild("PlayerGui"):WaitForChild("Quests"):WaitForChild("QuestsHolder"):WaitForChild("QuestsScrollingFrame")
+local bn=
 
-                for bt,bu in ipairs(bs:GetChildren()) do
-                    if bu:IsA("Frame") or bu:IsA("TextButton") or bu:IsA("ImageButton") then
-                        br.get("claim_quest",bu.Name)
-                        task.wait(0.2)
-                    end
-                end
-            end)
-            if bn then
-                print("Claim All Quests Completed")
-            else
-                warn(bo)
-            end
-        end)
-    end
-})
+bk:Button
+
+{
+
+Title="Claim All Quest",
+
+Callback=function()
+
+task.spawn(
+
+function()
+
+local bn,bo=
+
+pcall(
+
+function()
+
+local bn=game:GetService"Players"
+
+local bo=game:GetService"ReplicatedStorage"
+
+local bp=bn.LocalPlayer
+
+
+
+local function findCounter()
+
+for bq,br in ipairs(getgc and getgc(true)or{})do
+
+if typeof(br)=="table"and rawget(br,"event")and rawget(br,"func")then
+
+return br
+
+end
+
+end
+
+return nil
+
+end
+
+local bq=findCounter()
+
+if not bq then
+
+return
+
+end
+
+
+
+local br={}
+
+function br.get(...)
+
+local bs={...}
+
+bq.func=(bq.func or 0)+1
+
+local bt=bo:WaitForChild"Remotes":WaitForChild"Get"
+
+return bt:InvokeServer(bq.func,table.unpack(bs))
+
+end
+
+local bs=
+
+bp:WaitForChild"PlayerGui":WaitForChild"Quests":WaitForChild"QuestsHolder":WaitForChild
+
+"QuestsScrollingFrame"
+
+
+
+for bt,bu in ipairs(bs:GetChildren())do
+
+if bu:IsA"Frame"or bu:IsA"TextButton"or bu:IsA"ImageButton"then
+
+br.get("claim_quest",bu.Name)
+
+task.wait(0.2)
+
+end
+
+end
+
+end
+
+)
+
+if bn then
+
+print"Claim All Quests Completed"
+
+else
+
+warn(bo)
+
+end
+
+end
+
+)
+
+end
+
+}
+
+
 
 D:Register("ClaimAllQuest",bn)
 
+
+
 local bo=D.Save
+
 local bp=D.Delete
+
 local bq=D.Load
+
+
 
 bk:Section{Title="Config Management"}
 
-local br = bk:Button({
-    Title="Save Config",
-    Callback=function()
-        if bo then
-            bo(D)
-        end
-    end
-})
+
+
+local br=
+
+bk:Button
+
+{
+
+Title="Save Config",
+
+Callback=function()
+
+if bo then
+
+bo(D)
+
+end
+
+end
+
+}
+
+
 
 D:Register("SaveConfig",br)
 
-local bs = bk:Button({
-    Title="Delete Config",
-    Callback=function()
-        if bp then
-            bp(D)
-        end
-    end
-})
+local bs=
+
+bk:Button
+
+{
+
+Title="Delete Config",
+
+Callback=function()
+
+if bp then
+
+bp(D)
+
+end
+
+end
+
+}
+
+
 
 D:Register("DeleteConfig",bs)
 
 if bq then
-    bq(D)
+
+bq(D)
+
 end
+
+
+
+
 
 local bt=j.tween
 
+
+
 j.tween=function(bu,bv,bw)
-    if bu and bu:IsA("NumberValue") and bw and bw.Value~=nil then
-        bu.Value=bw.Value
-        return {
-            Cancel=function()
-            end
-        }
-    end
-    return bt(bu,bv,bw)
+
+if bu and bu:IsA"NumberValue"and bw and bw.Value~=nil then
+
+bu.Value=bw.Value
+
+return{
+
+Cancel=function()
+
 end
 
-local bu,bv = pcall(function()
-    return k.get("SellPromptSellButton")
-end)
-if bu and bv then
-    local bw=bv:FindFirstChild("HoldStroke",true)
-    if bw then
-        bw.Enabled=false
-        local bx=bw:FindFirstChildOfClass("UIGradient")
-        if bx then
-            bx.Enabled=false
-        end
-    end
-    for bx,by in pairs(bv:GetDescendants()) do
-        if by:IsA("NumberValue") then
-            by.Value=1
-        end
-    end
+}
+
 end
+
+return bt(bu,bv,bw)
+
+end
+
+
+
+local bu,bv=
+
+pcall(
+
+function()
+
+return k.get"SellPromptSellButton"
+
+end
+
+)
+
+if bu and bv then
+
+local bw=bv:FindFirstChild("HoldStroke",true)
+
+if bw then
+
+bw.Enabled=false
+
+local bx=bw:FindFirstChildOfClass"UIGradient"
+
+if bx then
+
+bx.Enabled=false
+
+end
+
+end
+
+for bx,by in pairs(bv:GetDescendants())do
+
+if by:IsA"NumberValue"then
+
+by.Value=1
+
+end
+
+end
+
+end
+
+
 
 task.wait(2)
-print("Bypass")
+
+print"Bypass"
+
+
 
 local function lockTool(bw)
-    if bw and bw:IsA("Tool") then
-        pcall(function()
-            bw:SetAttribute("Locked",true)
-        end)
-    end
+
+if bw and bw:IsA"Tool"then
+
+pcall(
+
+function()
+
+bw:SetAttribute("Locked",true)
+
 end
+
+)
+
+end
+
+end
+
+
 
 local function setupBackpack(bw)
-    if not bw then
-        return
-    end
-    for bx,by in ipairs(bw:GetChildren()) do
-        lockTool(by)
-    end
-    bw.ChildAdded:Connect(lockTool)
+
+if not bw then
+
+return
+
 end
 
-local function init()
-    local bw=r:FindFirstChildOfClass("Backpack")
-    if bw then
-        setupBackpack(bw)
-    else
-        r.ChildAdded:Connect(function(bx)
-            if bx:IsA("Backpack") then
-                setupBackpack(bx)
-            end
-        end)
-    end
+for bx,by in ipairs(bw:GetChildren())do
+
+lockTool(by)
+
 end
+
+bw.ChildAdded:Connect(lockTool)
+
+end
+
+
+
+local function init()
+
+local bw=r:FindFirstChildOfClass"Backpack"
+
+if bw then
+
+setupBackpack(bw)
+
+else
+
+r.ChildAdded:Connect(
+
+function(bx)
+
+if bx:IsA"Backpack"then
+
+setupBackpack(bx)
+
+end
+
+end
+
+)
+
+end
+
+end
+
+
 
 init()
 
-r.CharacterAdded:Connect(function()
-    task.wait(1)
-    init()
-end)
+
+
+r.CharacterAdded:Connect(
+
+function()
 
 task.wait(1)
 
-print("Bypass hotbar inf")
+init()
+
+end
+
+)
+
+
+
+task.wait(1)
+
+
+
+print"Bypass hotbar inf"
 
 local function hookButton(bw)
-    if not bw then
-        return
-    end
 
-    if bw:FindFirstChild("UnlocksAtText") then
-        bw.UnlocksAtText.Visible=false
-    end
-    if bw:FindFirstChild("EmoteName") then
-        bw.EmoteName.Visible=true
-    end
+if not bw then
 
-    n.on_click(bw, function()
-        local bx=o.get_hum()
-        if not bx or bx.Health<=0 then
-            return
-        end
+return
 
-        if l.current_emote_playing.get()==bw then
-            l.current_emote_playing.set(nil)
-        else
-            l.current_emote_playing.set(bw)
-        end
-
-        task.wait(0.12)
-
-        l.enabled.set(false)
-    end)
-
-    l.current_emote_playing.hook(function(bx)
-        if bw:FindFirstChild("EmoteEquipped") then
-            bw.EmoteEquipped.Visible=(bx==bw)
-        end
-    end)
 end
+
+
+
+if bw:FindFirstChild"UnlocksAtText"then
+
+bw.UnlocksAtText.Visible=false
+
+end
+
+if bw:FindFirstChild"EmoteName"then
+
+bw.EmoteName.Visible=true
+
+end
+
+
+
+n.on_click(
+
+bw,
+
+function()
+
+local bx=o.get_hum()
+
+if not bx or bx.Health<=0 then
+
+return
+
+end
+
+
+
+if l.current_emote_playing.get()==bw then
+
+l.current_emote_playing.set(nil)
+
+else
+
+l.current_emote_playing.set(bw)
+
+end
+
+
+
+task.wait(0.12)
+
+
+
+l.enabled.set(false)
+
+end
+
+)
+
+
+
+l.current_emote_playing.hook(
+
+function(bx)
+
+if bw:FindFirstChild"EmoteEquipped"then
+
+bw.EmoteEquipped.Visible=(bx==bw)
+
+end
+
+end
+
+)
+
+end
+
+
 
 local function hookAllEmotes()
-    for bw,bx in pairs(m) do
-        local by=n.get("EmoteTemplate").Parent:FindFirstChild(bx.name)
-        hookButton(by)
-    end
+
+for bw,bx in pairs(m)do
+
+local by=n.get"EmoteTemplate".Parent:FindFirstChild(bx.name)
+
+hookButton(by)
+
 end
+
+end
+
+
 
 hookAllEmotes()
 
-r.CharacterAdded:Connect(function()
-    task.wait(1)
-    hookAllEmotes()
-end)
+
+
+r.CharacterAdded:Connect(
+
+function()
+
+task.wait(1)
+
+hookAllEmotes()
+
+end
+
+)
+
+
 
 task.wait(2)
 
+
+
 local bw
+
 repeat
-    task.wait()
+
+task.wait()
+
 until workspace.CurrentCamera
+
 bw=workspace.CurrentCamera
 
+
+
 local function getRarityColor(bx)
-    if bx.Name=="Money" then
-        return Color3.fromRGB(0,255,0)
-    end
-    for by,bz in ipairs(p:GetChildren()) do
-        if bz:IsA("Folder") then
-            local bA=bz:FindFirstChild(bx.Name)
-            if bA and bA:GetAttribute("RarityName") then
-                local bB=bA:GetAttribute("RarityName")
-                return at[bB] or Color3.fromRGB(255,255,255)
-            end
-        end
-    end
-    return Color3.fromRGB(255,255,255)
+
+if bx.Name=="Money"then
+
+return Color3.fromRGB(0,255,0)
+
 end
+
+for by,bz in ipairs(p:GetChildren())do
+
+if bz:IsA"Folder"then
+
+local bA=bz:FindFirstChild(bx.Name)
+
+if bA and bA:GetAttribute"RarityName"then
+
+local bB=bA:GetAttribute"RarityName"
+
+return at[bB]or Color3.fromRGB(255,255,255)
+
+end
+
+end
+
+end
+
+return Color3.fromRGB(255,255,255)
+
+end
+
+
+
+
 
 local function cleanupItemDrawings()
-    for bx,by in pairs(w) do
-        if not bx or not bx.Parent then
-            if by.circle then
-                pcall(function()
-                    by.circle:Remove()
-                end)
-            end
-            if by.innerCircle then
-                pcall(function()
-                    by.innerCircle:Remove()
-                end)
-            end
-            if by.name then
-                pcall(function()
-                    by.name:Remove()
-                end)
-            end
-            if by.amount then
-                pcall(function()
-                    by.amount:Remove()
-                end)
-            end
-            if by.highlight then
-                pcall(function()
-                    by.highlight:Destroy()
-                end)
-            end
-            w[bx]=nil
-        end
-    end
+
+for bx,by in pairs(w)do
+
+if not bx or not bx.Parent then
+
+if by.circle then
+
+pcall(
+
+function()
+
+by.circle:Remove()
+
 end
 
-b.RenderStepped:Connect(function()
-    cleanupItemDrawings()
-    if not x then
-        return
-    end
+)
 
-    local bx=v.Character and v.Character:FindFirstChild("HumanoidRootPart")
-    if not bx then
-        return
-    end
+end
 
-    for by,bz in pairs(w) do
-        bz.circle.Visible=false
-        bz.innerCircle.Visible=false
-        bz.name.Visible=false
-        bz.amount.Visible=false
-        if bz.highlight then
-            bz.highlight.Enabled=false
-        end
-    end
+if by.innerCircle then
 
-    local by={}
-    for bz,bA in ipairs(x:GetChildren()) do
-        if bA:IsA("Model") and bA:FindFirstChild("PickUpZone") and not bA:GetAttribute("Locked") then
-            local bB,bC = pcall(function()
-                return bA.PickUpZone.Position
-            end)
-            if bB and bC then
-                local bD=(bC-bx.Position).Magnitude
-                table.insert(by,{item=bA,dist=bD})
-            end
-        end
-    end
-    table.sort(by, function(bz,bA)
-        return bz.dist<bA.dist
-    end)
+pcall(
 
-    for bz=1,math.min(20,#by) do
-        local bA=by[bz].item
-        local bB=w[bA]
+function()
 
-        if not bB then
-            bB={
-                circle=Drawing.new("Circle"),
-                innerCircle=Drawing.new("Circle"),
-                name=Drawing.new("Text"),
-                amount=Drawing.new("Text")
-            }
+by.innerCircle:Remove()
 
-            bB.circle.Thickness=2
-            bB.circle.Transparency=0.7
-            bB.circle.Filled=false
+end
 
-            bB.innerCircle.Thickness=2
-            bB.innerCircle.Transparency=1
-            bB.innerCircle.Filled=true
+)
 
-            bB.name.Outline=true
-            bB.name.OutlineColor=Color3.fromRGB(0,0,0)
-            bB.name.Center=true
-            bB.name.Size=16
-            bB.name.Font=4
+end
 
-            bB.amount.Outline=true
-            bB.amount.OutlineColor=Color3.fromRGB(0,0,0)
-            bB.amount.Center=true
-            bB.amount.Size=13
-            bB.amount.Color=Color3.fromRGB(200,200,200)
+if by.name then
 
-            w[bA]=bB
-        end
+pcall(
 
-        if not bB.highlight or not bB.highlight.Parent then
-            local bC=Instance.new("Highlight")
-            bC.Name="ESP_Highlight"
-            bC.FillTransparency=0.5
-            bC.OutlineTransparency=0.1
-            bC.Adornee=bA
-            bC.Parent=bA
-            bB.highlight=bC
-        end
+function()
 
-        local bC,bD=bw:WorldToViewportPoint(bA.PickUpZone.Position)
-        if bD then
-            local bE=getRarityColor(bA)
-            local bF=math.clamp(aA/bC.Z,3,6)
+by.name:Remove()
 
-            if bB.highlight then
-                bB.highlight.FillColor=bE
-                bB.highlight.OutlineColor=bE
-                bB.highlight.Enabled=true
-            end
+end
 
-            bB.circle.Position=Vector2.new(bC.X,bC.Y)
-            bB.circle.Radius=bF+5
-            bB.circle.Color=bE
-            bB.circle.Visible=true
+)
 
-            bB.innerCircle.Position=Vector2.new(bC.X,bC.Y)
-            bB.innerCircle.Radius=bF
-            bB.innerCircle.Color=bE
-            bB.innerCircle.Visible=true
+end
 
-            bB.name.Color=bE
-            bB.name.Position=Vector2.new(bC.X,bC.Y-bF-20)
-            bB.name.Text=bA.Name
-            bB.name.Visible=true
+if by.amount then
 
-            local bG=bA:GetAttribute("Amount") or 1
-            bB.amount.Position=Vector2.new(bC.X,bC.Y+bF+15)
-            bB.amount.Text=bG>1 and "["..tostring(bG).."]" or ""
-            bB.amount.Visible=bG>1
-        else
-            bB.circle.Visible=false
-            bB.innerCircle.Visible=false
-            bB.name.Visible=false
-            bB.amount.Visible=false
-            if bB.highlight then
-                bB.highlight.Enabled=false
-            end
-        end
-    end
-end)
+pcall(
 
-a.PlayerRemoving:Connect(function(bx)
-    if bx==v then
-        for by,bz in pairs(w) do
-            pcall(function()
-                bz.circle:Remove()
-            end)
-            pcall(function()
-                bz.innerCircle:Remove()
-            end)
-            pcall(function()
-                bz.name:Remove()
-            end)
-            pcall(function()
-                bz.amount:Remove()
-            end)
-            pcall(function()
-                if bz.highlight then
-                    bz.highlight:Destroy()
-                end
-            end)
-        end
-        w={}
-    end
-end)
+function()
 
--- PESTAÑA BUY ORIGINAL CON CRATE SKIPPER
+by.amount:Remove()
+
+end
+
+)
+
+end
+
+if by.highlight then
+
+pcall(
+
+function()
+
+by.highlight:Destroy()
+
+end
+
+)
+
+end
+
+w[bx]=nil
+
+end
+
+end
+
+end
+
+
+
+
+
+b.RenderStepped:Connect(
+
+function()
+
+cleanupItemDrawings()
+
+if not x then
+
+return
+
+end
+
+
+
+local bx=v.Character and v.Character:FindFirstChild"HumanoidRootPart"
+
+if not bx then
+
+return
+
+end
+
+
+
+
+
+for by,bz in pairs(w)do
+
+bz.circle.Visible=false
+
+bz.innerCircle.Visible=false
+
+bz.name.Visible=false
+
+bz.amount.Visible=false
+
+if bz.highlight then
+
+bz.highlight.Enabled=false
+
+end
+
+end
+
+
+
+local by={}
+
+for bz,bA in ipairs(x:GetChildren())do
+
+if bA:IsA"Model"and bA:FindFirstChild"PickUpZone"and not bA:GetAttribute"Locked"then
+
+local bB,bC=
+
+pcall(
+
+function()
+
+return bA.PickUpZone.Position
+
+end
+
+)
+
+if bB and bC then
+
+local bD=(bC-bx.Position).Magnitude
+
+table.insert(by,{item=bA,dist=bD})
+
+end
+
+end
+
+end
+
+table.sort(
+
+by,
+
+function(bz,bA)
+
+return bz.dist<bA.dist
+
+end
+
+)
+
+
+
+for bz=1,math.min(20,#by)do
+
+local bA=by[bz].item
+
+local bB=w[bA]
+
+
+
+if not bB then
+
+bB={
+
+circle=Drawing.new"Circle",
+
+innerCircle=Drawing.new"Circle",
+
+name=Drawing.new"Text",
+
+amount=Drawing.new"Text"
+
+}
+
+
+
+bB.circle.Thickness=2
+
+bB.circle.Transparency=0.7
+
+bB.circle.Filled=false
+
+
+
+bB.innerCircle.Thickness=2
+
+bB.innerCircle.Transparency=1
+
+bB.innerCircle.Filled=true
+
+
+
+
+
+bB.name.Outline=true
+
+bB.name.OutlineColor=Color3.fromRGB(0,0,0)
+
+bB.name.Center=true
+
+bB.name.Size=16
+
+bB.name.Font=4
+
+
+
+
+
+bB.amount.Outline=true
+
+bB.amount.OutlineColor=Color3.fromRGB(0,0,0)
+
+bB.amount.Center=true
+
+bB.amount.Size=13
+
+bB.amount.Color=Color3.fromRGB(200,200,200)
+
+
+
+w[bA]=bB
+
+end
+
+
+
+if not bB.highlight or not bB.highlight.Parent then
+
+local bC=Instance.new"Highlight"
+
+bC.Name="ESP_Highlight"
+
+bC.FillTransparency=0.5
+
+bC.OutlineTransparency=0.1
+
+bC.Adornee=bA
+
+bC.Parent=bA
+
+bB.highlight=bC
+
+end
+
+
+
+local bC,bD=bw:WorldToViewportPoint(bA.PickUpZone.Position)
+
+if bD then
+
+local bE=getRarityColor(bA)
+
+local bF=math.clamp(aA/bC.Z,3,6)
+
+
+
+if bB.highlight then
+
+bB.highlight.FillColor=bE
+
+bB.highlight.OutlineColor=bE
+
+bB.highlight.Enabled=true
+
+end
+
+
+
+bB.circle.Position=Vector2.new(bC.X,bC.Y)
+
+bB.circle.Radius=bF+5
+
+bB.circle.Color=bE
+
+bB.circle.Visible=true
+
+
+
+bB.innerCircle.Position=Vector2.new(bC.X,bC.Y)
+
+bB.innerCircle.Radius=bF
+
+bB.innerCircle.Color=bE
+
+bB.innerCircle.Visible=true
+
+
+
+bB.name.Color=bE
+
+bB.name.Position=Vector2.new(bC.X,bC.Y-bF-20)
+
+bB.name.Text=bA.Name
+
+bB.name.Visible=true
+
+
+
+local bG=bA:GetAttribute"Amount"or 1
+
+bB.amount.Position=Vector2.new(bC.X,bC.Y+bF+15)
+
+bB.amount.Text=bG>1 and"["..tostring(bG).."]"or""
+
+bB.amount.Visible=bG>1
+
+else
+
+bB.circle.Visible=false
+
+bB.innerCircle.Visible=false
+
+bB.name.Visible=false
+
+bB.amount.Visible=false
+
+if bB.highlight then
+
+bB.highlight.Enabled=false
+
+end
+
+end
+
+end
+
+end
+
+)
+
+
+
+a.PlayerRemoving:Connect(
+
+function(bx)
+
+if bx==v then
+
+for by,bz in pairs(w)do
+
+pcall(
+
+function()
+
+bz.circle:Remove()
+
+end
+
+)
+
+pcall(
+
+function()
+
+bz.innerCircle:Remove()
+
+end
+
+)
+
+pcall(
+
+function()
+
+bz.name:Remove()
+
+end
+
+)
+
+pcall(
+
+function()
+
+bz.amount:Remove()
+
+end
+
+)
+
+pcall(
+
+function()
+
+if bz.highlight then
+
+bz.highlight:Destroy()
+
+end
+
+end
+
+)
+
+end
+
+w={}
+
+end
+
+end
+
+)
+
+
+
+-- BUY TAB WITH MONEY DISPLAY
 local BuyTab = B:Tab({Title = "Buy", Icon = "house"})
 
-BuyTab:Section({Title = "Crates"})
+BuyTab:Section({Title = "Economy & Crates"})
+
+-- --- MONEY DISPLAY LOGIC START ---
+local PlayerGui = r:WaitForChild("PlayerGui")
+
+local function HandMoney()
+    pcall(function()
+        local TextLabel = PlayerGui:WaitForChild("TopRightHud"):WaitForChild("Holder"):WaitForChild("Frame"):WaitForChild("MoneyTextLabel")
+        return tonumber(TextLabel.Text:match('%$(%d+)'))
+    end)
+    return 0
+end
+
+local function ATMMoney()
+    local bankBalance = 0
+    pcall(function()
+        for _, v in ipairs(PlayerGui:GetDescendants()) do
+            if v:IsA('TextLabel') and string.find(v.Text, 'Bank Balance') then
+                local amount = tonumber(v.Text:match('%$(%d+)'))
+                if amount then 
+                    bankBalance = amount 
+                    break 
+                end
+            end
+        end
+    end)
+    return bankBalance
+end
+
+-- Create Labels in UI to show the money
+local BankBalanceLabel = BuyTab:Label({Title = "Bank Balance", Text = "$0"})
+local HandBalanceLabel = BuyTab:Label({Title = "Hand Cash", Text = "$0"})
+
+-- Start the update loop
+task.spawn(function()
+    while task.wait(0.2) do
+        local atm = ATMMoney()
+        local hand = HandMoney()
+        
+        -- Update the UI Labels with formatted text
+        BankBalanceLabel:SetDesc('<b><font color="#00FF00">$' .. tostring(atm) .. '</font></b>')
+        HandBalanceLabel:SetDesc('<b><font color="#00f2ff">$' .. tostring(hand) .. '</font></b>')
+    end
+end)
+-- --- MONEY DISPLAY LOGIC END ---
+
+BuyTab:Divider()
 
 local CrateController = require(game:GetService("ReplicatedStorage").Modules.Game.CrateSystem.Crate)
 local EnabledSkip = false
@@ -2733,42 +3647,52 @@ D:Register("Skip animation", buu11)
 
 local VehicleTab = B:Tab({Title = "Car", Icon = "car"})
 
-VehicleTab:Section({Title = "Car"})
+VehicleTab:Section(
+    {
+        Title = "Car"
+    }
+)
 
 VehicleTab:Button({
-    Title = "Pull Car Owner",
-    Desc = "",
-    Callback = function()
-        local Players = game:GetService("Players")
-        local Client = Players.LocalPlayer
+        Title = "Pull Car Owner",
+        Desc = "",
+        Callback = function()
+            local Players = game:GetService("Players")
+local Client = Players.LocalPlayer
 
-        local Character = Client.Character or Client.CharacterAdded:Wait()
-        local RootPart = Character:WaitForChild("HumanoidRootPart")
 
-        local Vehicles = workspace:WaitForChild("Vehicles")
 
-        for _, vehicle in pairs(Vehicles:GetChildren()) do
-            if vehicle:IsA("Model") then
-                local ownerId = vehicle:GetAttribute("OwnerUserId")
-                
-                if ownerId and ownerId == Client.UserId then
-                    local offset = CFrame.new(math.random(-5,5), 3, math.random(-15,-5))
-                    
-                    if vehicle.PrimaryPart then
-                        vehicle:SetPrimaryPartCFrame(RootPart.CFrame * offset)
-                    else
-                        local part = vehicle:FindFirstChildWhichIsA("BasePart")
-                        if part then
-                            part.CFrame = RootPart.CFrame * offset
-                        end
-                    end
+local Character = Client.Character or Client.CharacterAdded:Wait()
+local RootPart = Character:WaitForChild("HumanoidRootPart")
+
+
+
+local Vehicles = workspace:WaitForChild("Vehicles")
+
+
+
+for _, vehicle in pairs(Vehicles:GetChildren()) do
+    if vehicle:IsA("Model") then
+        local ownerId = vehicle:GetAttribute("OwnerUserId")
+        
+        if ownerId and ownerId == Client.UserId then
+            local offset = CFrame.new(math.random(-5,5), 3, math.random(-15,-5))
+            
+            if vehicle.PrimaryPart then
+                vehicle:SetPrimaryPartCFrame(RootPart.CFrame * offset)
+            else
+                local part = vehicle:FindFirstChildWhichIsA("BasePart")
+                if part then
+                    part.CFrame = RootPart.CFrame * offset
                 end
             end
         end
-        B:Notify({
-            Title = "Button",
-            Desc = "Action performed successfully.",
-            Time = 3
-        })
     end
-})
+end
+            B:Notify({
+                Title = "Button",
+                Desc = "Action performed successfully.",
+                Time = 3
+            })
+        end
+    })
