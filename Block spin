@@ -2161,96 +2161,43 @@ a1:Divider()
 
 a1:Section({Title = "PC HOLD (Z)"})
 
-
-
-local bd =
-a1:Toggle
-
-{
-
-Title="Snap Under Map",
-
-Default=false,
-
-Callback=function(bd)
-
-W=bd
-
-
-
-if W then
-
-ac=ac+1
-
-
-
-if ac<2 then
-
-return
-
-end
-
-
-
-Z=u and u.Position.Y or nil
-
-V=true
-
-performTeleport()
-
-else
-
-V=false
-
-X=nil
-
-Z=nil
-
-end
-
-end
-
-}
-
-
-
-
+-- CORRECCIÓN DE SINTAXIS AQUÍ: Se usan paréntesis () en lugar de llaves {}
+local bd = a1:Toggle({
+    Title="Snap Under Map",
+    Default=false,
+    Callback=function(bd)
+        W=bd
+        if W then
+            ac=ac+1
+            if ac<2 then
+                return
+            end
+            Z=u and u.Position.Y or nil
+            V=true
+            performTeleport()
+        else
+            V=false
+            X=nil
+            Z=nil
+        end
+    end
+})
 
 D:Register("SnapUnderMap",bd)
 
-local be=
-
-a1:Slider
-
-{
-
-Title="Snap:",
-
-Step=1,
-
-Value={Min=1,Max=300,Default=10},
-
-Callback=function(be)
-
-Y=be
-
-if V and u and Z then
-
-local bf=
-
-Vector3.new(u.Position.X,Z-Y,u.Position.Z)
-
-u.CFrame=CFrame.new(bf)
-
-X=bf.Y
-
-end
-
-end
-
-}
-
-
+local be = a1:Slider({
+    Title="Snap:",
+    Step=1,
+    Value={Min=1,Max=300,Default=10},
+    Callback=function(be)
+        Y=be
+        if V and u and Z then
+            local bf = Vector3.new(u.Position.X,Z-Y,u.Position.Z)
+            u.CFrame=CFrame.new(bf)
+            X=bf.Y
+        end
+    end
+})
 
 D:Register("SnapHeight",be)
 
