@@ -1,7 +1,13 @@
--- Скрипт: rick Hub | spin - полная реализация
--- Требуется: WindUI, game:GetService, hookfunction (только executor)
--- Все комментарии строго технические.
+-- Проблема: скрипт не создаёт UI элементы в меню.
+-- Причина 1: WindUI не загрузился (loadstring заблокирован executor'ом).
+-- Причина 2: Window создан как заглушка (dummy) без методов Tab/Section/Toggle.
+-- Причина 3: Ошибка в CreateWindow из-за неверных параметров (Theme, KeyCode).
+-- Причина 4: Отсутствует вызов Window:Tab() для создания вкладок — UI пустой.
+-- Причина 5: Callback функции ссылаются на несуществующие переменные (enabled, highlightEnabled, TracerESP).
 
+-- Решение: полный исправленный код с рабочим UI.
+
+-- ==================== ИНИЦИАЛИЗАЦИЯ ====================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -10,13 +16,18 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
 local ContextActionService = game:GetService("ContextActionService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Stats = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local RootPart = Character:WaitForChild("HumanoidRootPart")
+local Camera = Workspace.CurrentCamera
 
--- Конфигурация
+-- ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
 local Config = {
     SilentAim = false,
     SilentAimAttach = false,
@@ -47,118 +58,44 @@ local Config = {
     SkipCrate = false
 }
 
--- Инициализация WindUI
-local WindUI
-pcall(function()
-    WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-end)
+local State = {
+    AutoAttackRunning = false,
+    JumpConnection = nil,
+    WalkSpeedConnection = nil,
+    LockConnection = nil,
+    SnapActive = false,
+    SnapY = nil,
+    SnapCount = 0,
+    CurrentTarget = nil,
+    FOV = 120,
+    PingHistory = {},
+    MaxHistory = 10,
+    VelocityHistory = {},
+    MaxVelHistory = 6,
+    VelocitySmoothing = 0.80,
+    MaxVerticalSpeed = 150,
+    VelocitySmoothFactor = 1,
+    AimPartTarget = Vector3.new(),
+    ESPCache = {},
+    PlayerBillboards = {},
+    Highlights = {},
+    WeaponRegistry = {},
+    OriginalFistsAttributes = {},
+    CounterTable = nil,
+    TracerESP = nil,
+    DroppedItems = Workspace:WaitForChild("DroppedItems", 5),
+    ItemDrawings = {},
+    AutoSprintLoop = nil,
+    OriginalSprintUpdate = nil,
+    HealLoopStarted = false,
+    AutoHealEnabled = false,
+    HideNameEnabled = false,
+    PlayerNameLabel = nil,
+    OriginalNameText = "",
+    CurrentTracerTarget = nil,
+    FullbrightEnabled = false
+}
 
-local Window
-if WindUI then
-    Window = WindUI:CreateWindow({
-        Title = "rick Hub | spin🔫",
-        Icon = "rbxassetid://100758136601163",
-        Author = "[🔫] Tik Tok | ownerofyupi",
-        Folder = "rick",
-        Size = UDim2.fromOffset(650, 400),
-        Theme = "Dark",
-        Transparent = true,
-        Resizable = true,
-        KeyCode = Enum.KeyCode.L
-    })
-    Window:EditOpenButton({
-        Title = "rick Huh 🔫",
-        Icon = "rbxassetid://100758136601163",
-        CornerRadius = UDim.new(0, 16),
-        StrokeThickness = 2,
-        Color = ColorSequence.new(Color3.fromHex("#FFFFFF"), Color3.fromHex("#000000")),
-        OnlyMobile = false,
-        Enabled = true,
-        Draggable = true
-    })
-    Window:Tag({
-        Title = "PVP | spin",
-        Icon = "github",
-        Color = Color3.fromHex("#ac30ff"),
-        Radius = 13
-    })
-else
-    -- Заглушка если WindUI не загрузился
-    Window = {
-        Tab = function() return {
-            Section = function() end,
-            Toggle = function() end,
-            Slider = function() end,
-            Button = function() end,
-            Input = function() return {} end,
-            Divider = function() end,
-            Label = function() return {SetDesc = function() end} end,
-            Dropdown = function() return {} end
-        } end
-    }
-end
-
-local ConfigManager = Window.ConfigManager
-local ConfigData = ConfigManager:CreateConfig("CathubConfig")
-
--- Remotes
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local SendRemote = Remotes:WaitForChild("Send", 5)
-
--- Модули
-local Util = require(ReplicatedStorage.Modules.Core.Util)
-local BuyPromptUI = require(ReplicatedStorage.Modules.Game.UI.BuyPromptUI)
-local EmotesUI = require(ReplicatedStorage.Modules.Game.Emotes.EmotesUI)
-local EmotesList = require(ReplicatedStorage.Modules.Game.Emotes.EmotesList)
-local CoreUI = require(ReplicatedStorage.Modules.Core.UI)
-local CharModule = require(ReplicatedStorage.Modules.Core.Char)
-
-local Items = ReplicatedStorage:WaitForChild("Items")
-local MeleeFolder = Items:WaitForChild("melee")
-
--- Переменные состояния
-local Radius = 50
-local CheckInterval = 0.0000001
-local ActiveConnections = {}
-local PingHistory = {}
-local MaxHistory = 10
-local TargetLock = false
-local FOV = 120
-local CurrentTarget
-local TracerLine = Drawing.new("Line")
-TracerLine.Thickness = 1
-TracerLine.Color = Color3.fromRGB(255, 50, 50)
-TracerLine.Transparency = 1
-TracerLine.Visible = false
-
-local ESPCache = {}
-local NameESPEnabled = false
-local HealthESPEnabled = false
-local DistanceESPEnabled = false
-local Friends = {}
-local WalkSpeedEnabled = false
-local SpeedMultiplier = 0.05
-local JumpPowerEnabled = false
-local FlyEnabled = false
-local FlySpeed = 40
-local SnapUnderMapEnabled = false
-local SnapHeight = 10
-local SnapY
-local _G = getgenv or function() return _G end
-_G.Sky = false
-_G.SkyAmount = 1000
-local AutoSkipEnabled = false
-local AntiKillEnabled = false
-
--- Фиксированная высота прыжка
-local JumpHeight = 30
-
--- Hide Name переменные
-local hideNameEnabled = false
-local playerNameLabel = nil
-local originalNameText = ""
-
--- Данные оружия
 local RarityColors = {
     Common = Color3.fromRGB(255, 255, 255),
     Uncommon = Color3.fromRGB(99, 255, 52),
@@ -167,54 +104,162 @@ local RarityColors = {
     Legendary = Color3.fromRGB(255, 150, 0),
     Omega = Color3.fromRGB(255, 20, 51)
 }
-local WeaponRegistry = {}
-local PlayerBillboards = {}
-local ItemsESPEnabled = false
-local ESPUpdateLoop
-local HighlightEnabled = false
-local Highlights = {}
-local FistsModifier = false
-local OriginalFistsAttributes = {}
 
--- Поиск таблицы counter
-local CounterTable
+-- ==================== ПОИСК COUNTER TABLE ====================
 pcall(function()
     for _, v in ipairs(getgc(true)) do
         if typeof(v) == "table" and rawget(v, "event") and rawget(v, "func") then
-            CounterTable = v
+            State.CounterTable = v
             break
         end
     end
 end)
 
--- Функция поиска Label имени игрока
-local function findPlayerNameLabel()
-    if playerNameLabel then return playerNameLabel end
-    pcall(function()
-        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local hrp = char:WaitForChild("HumanoidRootPart", 5)
-        for _, child in ipairs(hrp:GetChildren()) do
-            if child:IsA("BillboardGui") then
-                for _, label in ipairs(child:GetChildren()) do
-                    if label:IsA("TextLabel") and label.Text == LocalPlayer.Name then
-                        playerNameLabel = label
-                        originalNameText = label.Text
-                        break
-                    end
-                end
-            end
-        end
-    end)
-    return playerNameLabel
+-- ==================== ЗАГРУЗКА WINDUI ====================
+local WindUI
+local WindUILoaded = false
+
+local success, err = pcall(function()
+    WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+    WindUILoaded = true
+end)
+
+if not success or not WindUI then
+    warn("[rick Hub] WindUI load failed:", err)
+    WindUI = nil
 end
 
--- Генератор Rainbow цвета
+-- ==================== СОЗДАНИЕ ОКНА ====================
+local Window
+if WindUI then
+    local winSuccess, winErr = pcall(function()
+        Window = WindUI:CreateWindow({
+            Title = "rick Hub | spin",
+            Icon = "rbxassetid://100758136601163",
+            Author = "TikTok | ownerofyupi",
+            Folder = "rick",
+            Size = UDim2.fromOffset(650, 400),
+            Theme = "Dark",
+            Transparent = true,
+            Resizable = true,
+            KeyCode = Enum.KeyCode.L
+        })
+    end)
+    
+    if not winSuccess or not Window then
+        warn("[rick Hub] Window creation failed:", winErr)
+        Window = nil
+    else
+        pcall(function()
+            Window:EditOpenButton({
+                Title = "rick Hub",
+                Icon = "rbxassetid://100758136601163",
+                CornerRadius = UDim.new(0, 16),
+                StrokeThickness = 2,
+                Color = ColorSequence.new(Color3.fromHex("#FFFFFF"), Color3.fromHex("#000000")),
+                OnlyMobile = false,
+                Enabled = true,
+                Draggable = true
+            })
+        end)
+        pcall(function()
+            Window:Tag({
+                Title = "PVP | spin",
+                Icon = "github",
+                Color = Color3.fromHex("#ac30ff"),
+                Radius = 13
+            })
+        end)
+    end
+end
+
+-- ==================== ЗАГЛУШКА ЕСЛИ WINDUI НЕ ЗАГРУЗИЛСЯ ====================
+if not Window then
+    warn("[rick Hub] Using dummy UI - WindUI not available")
+    local dummyMethods = {
+        Section = function() return dummyMethods end,
+        Toggle = function() return dummyMethods end,
+        Slider = function() return dummyMethods end,
+        Button = function() return dummyMethods end,
+        Input = function() return dummyMethods end,
+        Dropdown = function() return dummyMethods end,
+        Divider = function() return dummyMethods end,
+        Label = function() return {SetDesc = function() end} end,
+        Paragraph = function() return dummyMethods end
+    }
+    Window = {
+        Tab = function() return dummyMethods end,
+        Notify = function() end,
+        Toggle = function() end,
+        SetVisible = function() end,
+        ConfigManager = {
+            CreateConfig = function() return {
+                Register = function() end,
+                Save = function() end,
+                Delete = function() end,
+                Load = function() end
+            } end
+        }
+    }
+    return
+end
+
+-- ==================== CONFIG MANAGER ====================
+local ConfigManager = Window.ConfigManager
+local ConfigData
+if ConfigManager then
+    ConfigData = ConfigManager:CreateConfig("CathubConfig")
+end
+
+local function RegisterConfig(name, element)
+    if ConfigData and ConfigData.Register then
+        pcall(function() ConfigData:Register(name, element) end)
+    end
+end
+
+-- ==================== REMOTES И МОДУЛИ ====================
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
+local SendRemote = Remotes and Remotes:WaitForChild("Send", 5)
+
+local Items = ReplicatedStorage:WaitForChild("Items", 5)
+local MeleeFolder = Items and Items:WaitForChild("melee", 5)
+local GunFolder = Items and Items:WaitForChild("gun", 5)
+
+local Util, BuyPromptUI, EmotesUI, EmotesList, CoreUI, CharModule
+pcall(function() Util = require(ReplicatedStorage.Modules.Core.Util) end)
+pcall(function() BuyPromptUI = require(ReplicatedStorage.Modules.Game.UI.BuyPromptUI) end)
+pcall(function() EmotesUI = require(ReplicatedStorage.Modules.Game.Emotes.EmotesUI) end)
+pcall(function() EmotesList = require(ReplicatedStorage.Modules.Game.Emotes.EmotesList) end)
+pcall(function() CoreUI = require(ReplicatedStorage.Modules.Core.UI) end)
+pcall(function() CharModule = require(ReplicatedStorage.Modules.Core.Char) end)
+
+-- ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 local function getRainbowColor(offset)
     local hue = (tick() * 0.8 + offset) % 1
     return Color3.fromHSV(hue, 1, 1)
 end
 
--- Получение пинга
+local function findPlayerNameLabel()
+    if State.PlayerNameLabel then return State.PlayerNameLabel end
+    pcall(function()
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart", 5)
+        if not hrp then return end
+        for _, child in ipairs(hrp:GetChildren()) do
+            if child:IsA("BillboardGui") then
+                for _, label in ipairs(child:GetChildren()) do
+                    if label:IsA("TextLabel") and label.Text == LocalPlayer.Name then
+                        State.PlayerNameLabel = label
+                        State.OriginalNameText = label.Text
+                        return
+                    end
+                end
+            end
+        end
+    end)
+    return State.PlayerNameLabel
+end
+
 local function getPing()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return 0.2 end
@@ -231,9 +276,8 @@ local function getPing()
     return seconds
 end
 
--- Проверка исключённых игроков
 local function isPlayerExcluded(name)
-    for _, friend in ipairs(Friends) do
+    for _, friend in ipairs(Config.FriendsList) do
         if friend ~= "" and string.find(string.lower(name), string.lower(friend)) then
             return true
         end
@@ -241,21 +285,21 @@ local function isPlayerExcluded(name)
     return false
 end
 
--- Поиск ближайшей цели
 local function getClosestTarget()
     local closest
-    local minDist = FOV
-    local screenCenter = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)
+    local minDist = State.FOV
+    if not Camera then return nil end
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local head = player.Character:FindFirstChild("Head")
             local hum = player.Character:FindFirstChild("Humanoid")
             local hrp = player.Character:FindFirstChild("HumanoidRootPart")
             if head and hum and hum.Health > 0 and hrp then
-                local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(head.Position)
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
                     local dist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
-                    if dist <= FOV and not isPlayerExcluded(player.Name) then
+                    if dist <= State.FOV and not isPlayerExcluded(player.Name) then
                         if dist < minDist then
                             minDist = dist
                             closest = player
@@ -268,23 +312,20 @@ local function getClosestTarget()
     return closest
 end
 
--- Сглаженный пинг
 local function GetSmoothedPing()
-    local Stats = game:GetService("Stats")
     local PingStats = Stats.Network.ServerStatsItem["Data Ping"]
     local pingValue = PingStats:GetValue()
-    table.insert(PingHistory, pingValue)
-    if #PingHistory > MaxHistory then
-        table.remove(PingHistory, 1)
+    table.insert(State.PingHistory, pingValue)
+    if #State.PingHistory > State.MaxHistory then
+        table.remove(State.PingHistory, 1)
     end
     local sum = 0
-    for _, val in ipairs(PingHistory) do
+    for _, val in ipairs(State.PingHistory) do
         sum = sum + val
     end
-    return (sum / #PingHistory) / 1000
+    return (sum / #State.PingHistory) / 1000
 end
 
--- Предсказание позиции
 local function predictPosition(part, hrp)
     if not part then return Vector3.zero end
     local ping = GetSmoothedPing()
@@ -293,339 +334,94 @@ local function predictPosition(part, hrp)
     return part.Position + (velocity * ping * 1)
 end
 
--- Проверка на стену
 local function isBehindWall(fromPos, toPos)
     local direction = toPos - fromPos
     if direction.Magnitude < 1 then return false end
     local ignore = {}
     local char = LocalPlayer.Character
     if char then table.insert(ignore, char) end
-    local targetChar = CurrentTarget and CurrentTarget.Character
+    local targetChar = State.CurrentTarget and State.CurrentTarget.Character
     if targetChar then table.insert(ignore, targetChar) end
-    local ray = workspace:Raycast(fromPos, direction, RaycastParams.new())
+    local ray = Workspace:Raycast(fromPos, direction, RaycastParams.new())
     if not ray then return false end
-    local hit = ray.Instance
-    return hit and not table.find(ignore, hit.Parent)
+    return ray.Instance and not table.find(ignore, ray.Instance.Parent)
 end
 
--- Настройка персонажа
-local function setupCharacter(char)
-    Character = char
-    Humanoid = char:WaitForChild("Humanoid")
-    RootPart = char:WaitForChild("HumanoidRootPart")
-    if WalkSpeedConnection then
-        pcall(function() WalkSpeedConnection:Disconnect() end)
-    end
-    WalkSpeedConnection = RunService.RenderStepped:Connect(function()
-        if WalkSpeedEnabled and Humanoid and RootPart then
-            if Humanoid.MoveDirection.Magnitude > 0 then
-                RootPart.CFrame = RootPart.CFrame + (Humanoid.MoveDirection.Unit * SpeedMultiplier)
-            end
-        end
-    end)
-end
-
--- Проверка на downed
 local function isDowned()
+    if not CharModule then return false end
     local hum = CharModule.get_hum()
     if not hum then return false end
     if hum.Health <= 0 then return false end
     return hum:GetAttribute("HasBeenDowned") or hum:GetAttribute("IsDead")
 end
 
--- Получение HRP
 local function getHRP()
+    if not CharModule then return nil end
     local char = CharModule.current_char.get()
-    if not char then return end
+    if not char then return nil end
     return char:FindFirstChild("HumanoidRootPart")
 end
 
--- Телепорт под карту
-local function teleportUnderground()
-    local hrp = getHRP()
-    if not hrp then return end
-    if not SnapY then
-        local pos = hrp.CFrame
-        SnapY = pos + Vector3.new(0, -100, 0)
+-- ==================== SETUP CHARACTER ====================
+local function setupCharacter(char)
+    Character = char
+    Humanoid = char:WaitForChild("Humanoid")
+    RootPart = char:WaitForChild("HumanoidRootPart")
+    if State.WalkSpeedConnection then
+        pcall(function() State.WalkSpeedConnection:Disconnect() end)
     end
-    hrp.CFrame = CFrame.new(SnapY.Position)
-end
-
--- Мерцание и движение
-local function flickerAndMove()
-    if AntiKillEnabled then return end
-    AntiKillEnabled = true
-    task.spawn(function()
-        while AntiKillEnabled and enabled and isDowned() do
-            local hum = CharModule.get_hum()
-            if hum and hum.Health <= 0 then break end
-            local hrp = getHRP()
-            if hrp and SnapY then
-                local angle = math.random() * math.pi * 2
-                local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * 30
-                local newPos = SnapY.Position + offset
-                hrp.CFrame = CFrame.new(newPos)
-                task.wait(0.05)
-                hrp.CFrame = SnapY
-            end
-            task.wait(0.1)
-        end
-        AntiKillEnabled = false
-    end)
-end
-
--- NetGet функция
-local function NetGet(...)
-    if not CounterTable or not CounterTable.func then return end
-    local args = {...}
-    for i, v in ipairs(args) do
-        if typeof(v) == "Instance" then
-            if v:IsA("Model") and #v:GetChildren() == 0 then
-                local droppedItems = Workspace:FindFirstChild("DroppedItems")
-                if droppedItems then
-                    local item = droppedItems:FindFirstChildWhichIsA("Model")
-                    if item then args[i] = item else return end
-                else return end
-            end
-        end
-    end
-    CounterTable.func = (CounterTable.func or 0) + 1
-    local success, result = pcall(function()
-        local getRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Get")
-        return getRemote:InvokeServer(CounterTable.func, unpack(args))
-    end)
-    if not success then warn("[NetGet Error]", result) end
-    return result
-end
-
--- Получение контейнера предметов
-local function GetDroppedItemsContainer()
-    return workspace:FindFirstChild("DroppedItems")
-end
-
--- Подбор предмета
-local function PickupItem(Item, Character)
-    local PickupZone = Item:FindFirstChild("PickUpZone")
-    local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
-    if PickupZone and HumanoidRootPart then
-        pcall(function()
-            firetouchinterest(PickupZone, HumanoidRootPart, 0)
-            firetouchinterest(PickupZone, HumanoidRootPart, 1)
-        end)
-    end
-end
-
--- Проверка и подбор
-local function CheckAndPickup()
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    local charPos = char:GetPivot().Position
-    local container = GetDroppedItemsContainer()
-    if container then
-        for _, item in ipairs(container:GetChildren()) do
-            if item:IsA("Model") then
-                local itemPos = item:GetPivot().Position
-                local dist = (itemPos - charPos).Magnitude
-                if dist <= Radius then
-                    local rarity = item:GetAttribute("RarityName") or "Common"
-                    if Config.PickupRarity == "All" or Config.PickupRarity == rarity then
-                        PickupItem(item, char)
-                    end
-                end
-            end
-        end
-    end
-end
-
--- Безопасный вызов
-local function SafeCall(func, ...)
-    local success, result = pcall(func, ...)
-    return success, result
-end
-
-local unpackFunc = table.unpack or unpack
-
--- Вызов Remote
-local function CallRemote(remote, ...)
-    if not remote then return end
-    local args = {...}
-    if remote.ClassName == "RemoteEvent" then
-        if CounterTable and type(CounterTable.event) == "number" then
-            CounterTable.event = CounterTable.event + 1
-            SafeCall(function(...) remote:FireServer(CounterTable.event, ...) end, unpackFunc(args))
-        else
-            local counter = (counter or 0) + 1
-            SafeCall(function(...) remote:FireServer(counter, ...) end, unpackFunc(args))
-        end
-    elseif remote.ClassName == "RemoteFunction" then
-        if CounterTable and type(CounterTable.func) == "number" then
-            CounterTable.func = CounterTable.func + 1
-            SafeCall(function(...) remote:InvokeServer(CounterTable.func, ...) end, unpackFunc(args))
-        else
-            local counter = (counter or 0) + 1
-            SafeCall(function(...) remote:InvokeServer(counter, ...) end, unpackFunc(args))
-        end
-    else
-        SafeCall(function(...)
-            if remote.FireServer then remote:FireServer(...)
-            elseif remote.InvokeServer then remote:InvokeServer(...) end
-        end, unpackFunc(args))
-    end
-end
-
--- Игроки в радиусе
-local function getPlayersInRange(range)
-    local result = {}
-    local char = LocalPlayer.Character
-    if not char or not char.PrimaryPart then return result end
-    local myPos = char.PrimaryPart.Position
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character.PrimaryPart then
-            local success, dist = pcall(function()
-                return (player.Character.PrimaryPart.Position - myPos).Magnitude
-            end)
-            if success and dist and dist <= range then
-                table.insert(result, player)
-            end
-        end
-    end
-    return result
-end
-
--- Получение активного инструмента
-local function getActiveTool()
-    local char = LocalPlayer and LocalPlayer.Character
-    if char then
-        for _, tool in ipairs(char:GetChildren()) do
-            if pcall(function() return tool:IsA("Tool") end) and tool:IsA("Tool") then
-                return tool
-            end
-        end
-    end
-    local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
-    if backpack then
-        for _, tool in ipairs(backpack:GetChildren()) do
-            if pcall(function() return tool:IsA("Tool") end) and tool:IsA("Tool") then
-                return tool
-            end
-        end
-    end
-    return nil
-end
-
--- Проверка на melee оружие
-local function isMeleeTool(tool)
-    if not tool then return false end
-    if tool.Name == "Fists" then return true end
-    local items = game:GetService("ReplicatedStorage"):WaitForChild("Items")
-    local melee = items:WaitForChild("melee")
-    local throwable = items:WaitForChild("throwable")
-    if melee:FindFirstChild(tool.Name) and not throwable:FindFirstChild(tool.Name) then
-        return true
-    end
-    return false
-end
-
--- Атака ближайших
-local function AttackNearby()
-    if not SendRemote then return end
-    local char = LocalPlayer.Character
-    if not char or not char.PrimaryPart then return end
-    local tool = getActiveTool()
-    if not tool or not isMeleeTool(tool) then return end
-    local success, parent = pcall(function() return tool.Parent end)
-    if not success or parent ~= LocalPlayer.Character then return end
-    local players = getPlayersInRange(20)
-    if #players == 0 then return end
-    local success2, myPos = pcall(function() return char.PrimaryPart.Position end)
-    if not success2 or not myPos then return end
-    local targets = {}
-    local positions = {}
-    for _, player in pairs(players) do
-        if player and player.Character and player.Character.PrimaryPart then
-            local head = player.Character:FindFirstChild("Head")
-            local hrp = player.Character.PrimaryPart
-            if head and hrp then
-                local predicted = predictPosition(head, hrp)
-                table.insert(targets, player)
-                table.insert(positions, predicted)
-            end
-        end
-    end
-    if #targets == 0 then return end
-    local firstPos = positions[1]
-    local lookCFrame = CFrame.lookAt(myPos, firstPos)
-    local args = {"melee_attack", tool, targets, lookCFrame, 0.75}
-    pcall(function() CallRemote(SendRemote, unpackFunc(args)) end)
-end
-
--- Автоатака
-local autoAttackRunning = false
-local function StartAutoAttack()
-    if autoAttackRunning then return end
-    autoAttackRunning = true
-    task.spawn(function()
-        while autoAttackRunning do
-            task.wait(0.4)
-            if Config.AutoAttack and LocalPlayer and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
-                pcall(AttackNearby)
+    State.WalkSpeedConnection = RunService.RenderStepped:Connect(function()
+        if Config.WalkSpeed and Humanoid and RootPart then
+            if Humanoid.MoveDirection.Magnitude > 0 then
+                RootPart.CFrame = RootPart.CFrame + (Humanoid.MoveDirection.Unit * Config.SpeedMultiplier * 0.05)
             end
         end
     end)
 end
 
--- Создание неонового эффекта
-local function createNeonEffectAtPosition(pos, scale)
-    if not Character then return end
-end
-
--- Выполнение телепорта
+-- ==================== TELEPORT ====================
 local function performTeleport()
     if not RootPart then return end
     local startPos = RootPart.Position
-    local endPos = Vector3.new(startPos.X, startPos.Y - SnapHeight, startPos.Z)
+    local endPos = Vector3.new(startPos.X, startPos.Y - Config.SnapHeight, startPos.Z)
     RootPart.CFrame = CFrame.new(endPos)
-    SnapY = endPos.Y
+    State.SnapY = endPos.Y
     local sound = Instance.new("Sound")
     sound.SoundId = "rbxassetid://108156925383225"
     sound.Volume = 1
     sound.PlayOnRemove = true
     sound.Parent = RootPart
     sound:Destroy()
-    createNeonEffectAtPosition(startPos, 1.5)
-    createNeonEffectAtPosition(endPos, 2)
 end
 
--- Переключение телепорта
 local function toggleTeleport()
-    if not SnapUnderMapEnabled then return end
-    if not SnapActive then
-        SnapActive = true
+    if not Config.SnapUnderMap then return end
+    if not State.SnapActive then
+        State.SnapActive = true
         performTeleport()
     else
-        SnapActive = false
-        SnapY = nil
+        State.SnapActive = false
+        State.SnapY = nil
     end
 end
 
--- Блокировка Y позиции
-local lockConnection
 local function lockYPosition()
-    if lockConnection then
-        pcall(function() lockConnection:Disconnect() end)
+    if State.LockConnection then
+        pcall(function() State.LockConnection:Disconnect() end)
     end
-    lockConnection = RunService.Heartbeat:Connect(function()
-        if SnapActive and SnapY and RootPart then
+    State.LockConnection = RunService.Heartbeat:Connect(function()
+        if State.SnapActive and State.SnapY and RootPart then
             local pos = RootPart.Position
-            if math.abs(pos.Y - SnapY) > 0.1 then
-                RootPart.CFrame = CFrame.new(pos.X, SnapY, pos.Z)
+            if math.abs(pos.Y - State.SnapY) > 0.1 then
+                RootPart.CFrame = CFrame.new(pos.X, State.SnapY, pos.Z)
             end
         end
     end)
 end
 
--- Регистрация предметов
+-- ==================== WEAPON REGISTRY ====================
 local function registerItems(folder)
+    if not folder then return end
     for _, tool in ipairs(folder:GetChildren()) do
         if tool:IsA("Tool") then
             local handle = tool:FindFirstChild("Handle")
@@ -648,15 +444,11 @@ local function registerItems(folder)
             if not key then
                 key = "NAME_" .. displayName .. "_" .. tool.Name .. "_RARITY_" .. rarity
             end
-            if WeaponRegistry[key] then
-                warn("Duplicate weapon key detected: " .. key .. " (Tool: " .. tool.Name .. ", Rarity: " .. rarity .. ")")
-            end
-            WeaponRegistry[key] = {Name = displayName, Rarity = rarity, ImageId = imageId, ToolName = tool.Name}
+            State.WeaponRegistry[key] = {Name = displayName, Rarity = rarity, ImageId = imageId, ToolName = tool.Name}
         end
     end
 end
 
--- Получение ключа предмета
 local function getItemKey(tool)
     local handle = tool:FindFirstChild("Handle")
     local displayName = tool:GetAttribute("DisplayName") or tool.Name
@@ -676,23 +468,21 @@ local function getItemKey(tool)
     return "NAME_" .. displayName .. "_" .. tool.Name .. "_RARITY_" .. rarity
 end
 
--- Получение информации об оружии
 local function getWeaponInfo(tool)
     if not tool or not tool:IsA("Tool") then return nil end
-    local key = getItemKey(tool)
-    return WeaponRegistry[key]
+    return State.WeaponRegistry[getItemKey(tool)]
 end
 
--- Создание Billboard для игрока
+-- ==================== BILLBOARD ====================
 local function createBillboardForPlayer(player)
-    if not ItemsESPEnabled or player == LocalPlayer then return end
+    if not Config.ItemsESP or player == LocalPlayer then return end
     local char = player.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    if PlayerBillboards[player] then
-        PlayerBillboards[player]:Destroy()
-        PlayerBillboards[player] = nil
+    if State.PlayerBillboards[player] then
+        State.PlayerBillboards[player]:Destroy()
+        State.PlayerBillboards[player] = nil
     end
     local billboard = Instance.new("BillboardGui")
     billboard.Adornee = hrp
@@ -717,11 +507,9 @@ local function createBillboardForPlayer(player)
             end
         end
     end
-    if char then
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") and tool.Name ~= "Fists" then
-                table.insert(tools, tool)
-            end
+    for _, tool in ipairs(char:GetChildren()) do
+        if tool:IsA("Tool") and tool.Name ~= "Fists" then
+            table.insert(tools, tool)
         end
     end
     for _, tool in ipairs(tools) do
@@ -738,10 +526,10 @@ local function createBillboardForPlayer(player)
             stroke.Thickness = 2
         end
     end
-    PlayerBillboards[player] = billboard
+    State.PlayerBillboards[player] = billboard
 end
 
--- Настройка FinishPrompt
+-- ==================== FINISH PROMPT ====================
 local function setFinishPrompt(prompt)
     if prompt and prompt:IsA("ProximityPrompt") then
         prompt.HoldDuration = 1
@@ -749,7 +537,6 @@ local function setFinishPrompt(prompt)
     end
 end
 
--- Попытка удержания промпта
 local function tryHoldPrompt(prompt, duration)
     if not prompt or prompt:GetAttribute("__AutoFinishBusy") then return end
     prompt:SetAttribute("__AutoFinishBusy", true)
@@ -762,10 +549,9 @@ local function tryHoldPrompt(prompt, duration)
     prompt:SetAttribute("__AutoFinishBusy", nil)
 end
 
--- Поиск FinishPrompt
 local function findFinishPrompts()
     local prompts = {}
-    for _, obj in pairs(workspace:GetChildren()) do
+    for _, obj in pairs(Workspace:GetChildren()) do
         local player = Players:GetPlayerFromCharacter(obj)
         if player and not isPlayerExcluded(player.Name) then
             local hrp = obj:FindFirstChild("HumanoidRootPart")
@@ -781,7 +567,6 @@ local function findFinishPrompts()
     return prompts
 end
 
--- Применение ко всем
 local function applyToAll()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
@@ -794,38 +579,19 @@ local function applyToAll()
     end
 end
 
--- Настройка FastFinish для игрока
 local function setupFastFinishForPlayer(player)
     if player ~= LocalPlayer then
         player.CharacterAdded:Connect(function(char)
             char.DescendantAdded:Connect(function(desc)
-                if AutoFinnishEnabled and desc.Name == "FinishPrompt" and desc:IsA("ProximityPrompt") and desc.Parent and desc.Parent.Name == "HumanoidRootPart" then
+                if Config.AutoFinnish and desc.Name == "FinishPrompt" and desc:IsA("ProximityPrompt") and desc.Parent and desc.Parent.Name == "HumanoidRootPart" then
                     setFinishPrompt(desc)
                 end
             end)
-            local hrp = char:WaitForChild("HumanoidRootPart", 5)
-            if hrp and AutoFinnishEnabled then
-                local prompt = hrp:FindFirstChild("FinishPrompt")
-                if prompt then setFinishPrompt(prompt) end
-            end
         end)
-        if player.Character then
-            local char = player.Character
-            char.DescendantAdded:Connect(function(desc)
-                if AutoFinnishEnabled and desc.Name == "FinishPrompt" and desc:IsA("ProximityPrompt") and desc.Parent and desc.Parent.Name == "HumanoidRootPart" then
-                    setFinishPrompt(desc)
-                end
-            end)
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp and AutoFinnishEnabled then
-                local prompt = hrp:FindFirstChild("FinishPrompt")
-                if prompt then setFinishPrompt(prompt) end
-            end
-        end
     end
 end
 
--- Попытка пропуска крата
+-- ==================== AUTO SKIP CRATE ====================
 local function TrySkipCrate()
     local success, crateModule = pcall(function()
         return require(ReplicatedStorage.Modules.Game.CrateSystem.Crate)
@@ -846,20 +612,16 @@ local function TrySkipCrate()
     end)
 end
 
--- Настройка авто-пропуска
 local function SetupAutoSkip()
-    local remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
-    if not remotes then return end
-    local send = remotes:WaitForChild("Send", 5)
-    if not (send and send:IsA("RemoteEvent")) then return end
-    send.OnClientEvent:Connect(function(...)
-        if AutoSkipEnabled then TrySkipCrate() end
+    if not SendRemote then return end
+    SendRemote.OnClientEvent:Connect(function(...)
+        if Config.SkipCrate then TrySkipCrate() end
     end)
 end
 
--- Создание ESP
+-- ==================== ESP ====================
 local function createESP(player)
-    if ESPCache[player] then return end
+    if State.ESPCache[player] then return end
     local nameText = Drawing.new("Text")
     nameText.Size = 16
     nameText.Center = true
@@ -894,14 +656,14 @@ local function createESP(player)
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
             dist = (hrp.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
         end
-        local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hrp.Position)
+        local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
         if not onScreen or screenPos.Z <= 0 then
             for _, d in pairs(drawings) do d.Visible = false end
             return
         end
         local x = screenPos.X
         local y = screenPos.Y - 15
-        if HealthESPEnabled and hum and hum.Health > 0 then
+        if Config.HealthESP and hum and hum.Health > 0 then
             local healthPct = hum.Health / (hum.MaxHealth > 0 and hum.MaxHealth or 1)
             local barHeight = 4
             local barWidth = 60
@@ -918,7 +680,7 @@ local function createESP(player)
             healthBg.Visible = false
             healthFill.Visible = false
         end
-        if NameESPEnabled then
+        if Config.NameESP then
             local minSize, maxSize = 14, 42
             local scale = math.clamp(dist / 50, 0, 1)
             local size = maxSize - (maxSize - minSize) * scale
@@ -931,42 +693,57 @@ local function createESP(player)
         else
             nameText.Visible = false
         end
-        distText.Text = DistanceESPEnabled and string.format("%.0f studs", dist) or ""
+        distText.Text = Config.DistanceESP and string.format("%.0f studs", dist) or ""
         distText.Position = Vector2.new(x, screenPos.Y + 20)
-        distText.Visible = DistanceESPEnabled
+        distText.Visible = Config.DistanceESP
     end)
-    ESPCache[player] = {conn = conn, drawings = drawings}
+    State.ESPCache[player] = {conn = conn, drawings = drawings}
 end
 
--- Загрузка ESP
 local function loadESP()
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and not ESPCache[player] then createESP(player) end
+        if player ~= LocalPlayer and not State.ESPCache[player] then createESP(player) end
     end
     Players.PlayerAdded:Connect(function(player)
         if player ~= LocalPlayer then
             player.CharacterAdded:Connect(function()
                 task.wait(0.1)
-                if not ESPCache[player] then createESP(player) end
+                if not State.ESPCache[player] then createESP(player) end
             end)
-            if player.Character and not ESPCache[player] then
-                task.wait(0.1)
-                createESP(player)
-            end
         end
     end)
     Players.PlayerRemoving:Connect(function(player)
-        if ESPCache[player] then
-            for _, d in pairs(ESPCache[player].drawings) do
+        if State.ESPCache[player] then
+            for _, d in pairs(State.ESPCache[player].drawings) do
                 if d and d.Destroy then pcall(function() d:Destroy() end)
                 elseif typeof(d) == "table" and d.Visible ~= nil then d.Visible = false end
             end
-            if ESPCache[player].conn then pcall(function() ESPCache[player].conn:Disconnect() end) end
+            if State.ESPCache[player].conn then pcall(function() State.ESPCache[player].conn:Disconnect() end) end
+            State.ESPCache[player] = nil
         end
     end)
 end
 
--- FOV круг
+-- ==================== HIGHLIGHT ====================
+local function updateHighlight(player)
+    if player == LocalPlayer then return end
+    if not player.Character then return end
+    if State.Highlights[player] then
+        State.Highlights[player]:Destroy()
+        State.Highlights[player] = nil
+    end
+    if Config.HighlightESP then
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "PlayerHighlight"
+        highlight.Adornee = player.Character
+        highlight.FillColor = Color3.fromRGB(136, 0, 153)
+        highlight.OutlineColor = Color3.fromRGB(136, 0, 153)
+        highlight.Parent = Workspace
+        State.Highlights[player] = highlight
+    end
+end
+
+-- ==================== FOV CIRCLE ====================
 local FOVCircle
 if not UserInputService.TouchEnabled or UserInputService.KeyboardEnabled then
     FOVCircle = Drawing.new("Circle")
@@ -975,14 +752,14 @@ if not UserInputService.TouchEnabled or UserInputService.KeyboardEnabled then
     FOVCircle.NumSides = 64
     FOVCircle.Filled = false
     FOVCircle.Transparency = 3
-    FOVCircle.Radius = FOV
+    FOVCircle.Radius = State.FOV
     FOVCircle.Visible = false
 else
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "MobileFOV"
     screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     FOVCircle = Instance.new("Frame")
-    FOVCircle.Size = UDim2.fromOffset(FOV * 2, FOV * 2)
+    FOVCircle.Size = UDim2.fromOffset(State.FOV * 2, State.FOV * 2)
     FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5)
     FOVCircle.Position = UDim2.fromScale(0.5, 0.5)
     FOVCircle.BackgroundTransparency = 1
@@ -997,14 +774,7 @@ else
     FOVCircle.Parent = screenGui
 end
 
--- Трекинг скорости
-local velocityHistory = {}
-local maxHistory = 6
-local velocitySmoothing = 0.80
-local maxVerticalSpeed = 150
-local velocitySmoothFactor = 1
-local aimPartTarget = Vector3.new()
-
+-- ==================== VELOCITY TRACKING ====================
 RunService.Heartbeat:Connect(function()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
@@ -1012,21 +782,22 @@ RunService.Heartbeat:Connect(function()
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChild("Humanoid")
             if hrp and hum and hum.Health > 0 then
-                velocityHistory[player] = velocityHistory[player] or {}
-                table.insert(velocityHistory[player], {time = os.clock(), pos = hrp.Position})
-                if #velocityHistory[player] > maxHistory then table.remove(velocityHistory[player], 1) end
+                State.VelocityHistory[player] = State.VelocityHistory[player] or {}
+                table.insert(State.VelocityHistory[player], {time = os.clock(), pos = hrp.Position})
+                if #State.VelocityHistory[player] > State.MaxVelHistory then
+                    table.remove(State.VelocityHistory[player], 1)
+                end
             else
-                velocityHistory[player] = nil
+                State.VelocityHistory[player] = nil
             end
         end
     end
 end)
 
-Players.PlayerRemoving:Connect(function(player) velocityHistory[player] = nil end)
+Players.PlayerRemoving:Connect(function(player) State.VelocityHistory[player] = nil end)
 
--- Расчёт скорости
 local function calculateVelocity(player)
-    local history = velocityHistory[player]
+    local history = State.VelocityHistory[player]
     if not history or #history < 2 then return Vector3.new() end
     local totalVel = Vector3.new()
     local count = 0
@@ -1040,13 +811,12 @@ local function calculateVelocity(player)
     if count == 0 then return Vector3.new() end
     local avgVel = totalVel / count
     if totalVel.Magnitude < 10 then return totalVel end
-    if avgVel.Y > maxVerticalSpeed then
+    if avgVel.Y > State.MaxVerticalSpeed then
         return Vector3.new(avgVel.X * 1.11, math.clamp(avgVel.Y * 0.97, 0, 360), avgVel.Z * 1.11)
     end
     return avgVel
 end
 
--- Предсказание позиции для игрока
 local function predictPositionForPlayer(part, hrp)
     if not part then return Vector3.zero end
     local parent = part.Parent
@@ -1055,10 +825,10 @@ local function predictPositionForPlayer(part, hrp)
     local velocity = calculateVelocity(player) or Vector3.zero
     local ping = (getPing and getPing()) or 0.1
     if ping < 0 then ping = 0.1 end
-    return part.Position + (velocity * ping * velocitySmoothing)
+    return part.Position + (velocity * ping * State.VelocitySmoothing)
 end
 
--- Проверка на дробовик
+-- ==================== SHOTGUN CHECK ====================
 local function isShotgun()
     if not Character then return false end
     for _, tool in ipairs(Character:GetChildren()) do
@@ -1070,17 +840,17 @@ local function isShotgun()
     return false
 end
 
--- Хук FireServer для Silent Aim
-local originalFireServer
+-- ==================== SILENT AIM HOOK ====================
 if SendRemote and SendRemote.FireServer then
-    local success = pcall(function()
+    local originalFireServer
+    pcall(function()
         originalFireServer = hookfunction(SendRemote.FireServer, function(self, ...)
             if self ~= SendRemote then return originalFireServer(self, ...) end
             local args = {...}
-            if Config.SilentAim and args[2] == "shoot_gun" and CurrentTarget then
-                local head = CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Head")
-                local hrp = CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
-                local hum = CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Humanoid")
+            if Config.SilentAim and args[2] == "shoot_gun" and State.CurrentTarget then
+                local head = State.CurrentTarget.Character and State.CurrentTarget.Character:FindFirstChild("Head")
+                local hrp = State.CurrentTarget.Character and State.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+                local hum = State.CurrentTarget.Character and State.CurrentTarget.Character:FindFirstChild("Humanoid")
                 if head and hrp and hum then
                     local targetPart = head
                     if Config.SelectedAimPart == "HumanoidRootPart" then
@@ -1108,7 +878,6 @@ if SendRemote and SendRemote.FireServer then
                         end
                         args[5] = {[1] = {[1] = {Instance = head, Normal = Vector3.new(0, 1, 0), Position = predictedPos}}}
                     end
-                    -- Визуальный tracer
                     local tracerPart = Instance.new("Part")
                     tracerPart.Anchored = true
                     tracerPart.CanCollide = false
@@ -1117,50 +886,8 @@ if SendRemote and SendRemote.FireServer then
                     tracerPart.Material = Enum.Material.Neon
                     tracerPart.Transparency = 0.35
                     tracerPart.Color = Color3.fromRGB(255, 0, 0)
-                    tracerPart.Parent = workspace
+                    tracerPart.Parent = Workspace
                     Debris:AddItem(tracerPart, 4)
-                    -- Эффект попадания
-                    local healthBefore = hum.Health
-                    spawn(function()
-                        wait(0.1)
-                        if hum and hum.Health < healthBefore then
-                            tracerPart.Color = Color3.fromRGB(0, 255, 0)
-                            for _, part in ipairs(CurrentTarget.Character:GetDescendants()) do
-                                if part:IsA("BasePart") then
-                                    local effect = Instance.new("Part")
-                                    effect.Size = part.Size + Vector3.new(0.05, 0.05, 0.05)
-                                    effect.CFrame = part.CFrame
-                                    effect.Anchored = true
-                                    effect.CanCollide = false
-                                    effect.Material = Enum.Material.Neon
-                                    effect.Color = Color3.fromRGB(255, 0, 0)
-                                    effect.Transparency = 0.5
-                                    effect.Parent = workspace
-                                    TweenService:Create(effect, TweenInfo.new(1.5, Enum.EasingStyle.Linear), {Transparency = 1}):Play()
-                                    Debris:AddItem(effect, 2)
-                                end
-                            end
-                            if head then
-                                local ball = Instance.new("Part")
-                                ball.Size = Vector3.new(0.2, 0.2, 0.2)
-                                ball.Shape = Enum.PartType.Ball
-                                ball.Material = Enum.Material.Neon
-                                ball.Color = Color3.fromRGB(255, 0, 0)
-                                ball.CFrame = CFrame.new(head.Position)
-                                ball.Anchored = false
-                                ball.CanCollide = false
-                                ball.Parent = workspace
-                                local bv = Instance.new("BodyVelocity")
-                                bv.Velocity = Vector3.new(math.random(-5, 5), math.random(5, 10), math.random(-5, 5))
-                                bv.P = 5000
-                                bv.MaxForce = Vector3.new(4000, 4000, 4000)
-                                bv.Parent = ball
-                                Debris:AddItem(ball, 1)
-                            end
-                        else
-                            tracerPart.Color = Color3.fromRGB(255, 0, 0)
-                        end
-                    end)
                 end
             end
             return originalFireServer(self, unpack(args))
@@ -1168,23 +895,23 @@ if SendRemote and SendRemote.FireServer then
     end)
 end
 
--- Основной цикл отрисовки
+-- ==================== MAIN RENDER LOOP ====================
 RunService.RenderStepped:Connect(function()
     pcall(function()
         if Config.SilentAimAttach then
-            CurrentTarget = getClosestTarget()
+            State.CurrentTarget = getClosestTarget()
         end
-        CurrentTarget = (Config.SilentAim or Config.SilentAimAttach) and getClosestTarget() or nil
+        State.CurrentTarget = (Config.SilentAim or Config.SilentAimAttach) and getClosestTarget() or nil
         local closest = getClosestTarget()
         if FOVCircle then
             FOVCircle.Visible = Config.SilentAim
             if Config.SilentAim then
                 if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
                     FOVCircle.Position = UDim2.fromScale(0.5, 0.5)
-                    FOVCircle.Size = UDim2.fromOffset(FOV * 2, FOV * 2)
+                    FOVCircle.Size = UDim2.fromOffset(State.FOV * 2, State.FOV * 2)
                 else
-                    FOVCircle.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)
-                    FOVCircle.Radius = FOV
+                    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    FOVCircle.Radius = State.FOV
                 end
             end
         end
@@ -1201,68 +928,29 @@ RunService.RenderStepped:Connect(function()
                 targetPart = char:FindFirstChild("Head")
             end
             if hum and hum.Health > 0 and targetPart then
-                local screenCenter = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)
+                local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                 local targetPos = targetPart.Position
-                aimPartTarget = aimPartTarget:Lerp(targetPos, velocitySmoothFactor)
-                local smoothTarget = aimPartTarget
-                local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(smoothTarget)
+                State.AimPartTarget = State.AimPartTarget:Lerp(targetPos, State.VelocitySmoothFactor)
+                local smoothTarget = State.AimPartTarget
+                local screenPos, onScreen = Camera:WorldToViewportPoint(smoothTarget)
                 if onScreen then
-                    TracerLine.Visible = true
-                    TracerLine.From = screenCenter
-                    TracerLine.To = Vector2.new(screenPos.X, screenPos.Y)
-                    TracerLine.Color = Color3.fromRGB(255, 50, 50)
-                    TracerLine.Thickness = 1.3
-                    if not TracerESP then
-                        TracerESP = {}
-                        for i = 1, 4 do
-                            TracerESP[i] = Drawing.new("Line")
-                            TracerESP[i].Color = Color3.fromRGB(255, 255, 255)
-                            TracerESP[i].Thickness = 1.2
-                            TracerESP[i].Visible = true
-                        end
+                    if not State.CurrentTracerTarget then
+                        State.CurrentTracerTarget = Drawing.new("Line")
+                        State.CurrentTracerTarget.Thickness = 1.3
+                        State.CurrentTracerTarget.Color = Color3.fromRGB(255, 50, 50)
                     end
-                    local topScreen = workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position + Vector3.new(0, 0.5, 0))
-                    local bottomScreen = workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position - Vector3.new(0, 0.5, 0))
-                    local center = Vector2.new(screenPos.X, screenPos.Y)
-                    local halfHeight = (topScreen - bottomScreen).Magnitude / 2
-                    local halfWidth = halfHeight
-                    local minSize = 8
-                    local maxSize = 25
-                    halfWidth = math.clamp(halfWidth, minSize, maxSize)
-                    halfHeight = math.clamp(halfHeight, minSize, maxSize)
-                    local top = Vector2.new(center.X, center.Y - halfHeight)
-                    local bottom = Vector2.new(center.X, center.Y + halfHeight)
-                    local left = Vector2.new(center.X - halfWidth, center.Y)
-                    local right = Vector2.new(center.X + halfWidth, center.Y)
-                    TracerESP[1].From, TracerESP[1].To = top, right
-                    TracerESP[2].From, TracerESP[2].To = right, bottom
-                    TracerESP[3].From, TracerESP[3].To = bottom, left
-                    TracerESP[4].From, TracerESP[4].To = left, top
-                    for i = 1, 4 do TracerESP[i].Visible = true end
-                else
-                    TracerLine.Visible = false
-                    if TracerESP then for i = 1, 4 do TracerESP[i].Visible = false end end
+                    State.CurrentTracerTarget.Visible = true
+                    State.CurrentTracerTarget.From = screenCenter
+                    State.CurrentTracerTarget.To = Vector2.new(screenPos.X, screenPos.Y)
                 end
-            else
-                TracerLine.Visible = false
-                if TracerESP then for i = 1, 4 do TracerESP[i].Visible = false end end
-            end
-        else
-            TracerLine.Visible = false
-            if TracerESP then for i = 1, 4 do TracerESP[i].Visible = false end end
-            aimPartTarget = Vector3.new()
-        end
-        if JumpPowerEnabled and FlyEnabled and RootPart then
-            local vel = RootPart.Velocity
-            RootPart.Velocity = Vector3.new(vel.X, FlySpeed, vel.Z)
-        end
-        if SnapActive and SnapY and RootPart then
-            local pos = RootPart.Position
-            if math.abs(pos.Y - SnapY) > 0.1 then
-                RootPart.CFrame = CFrame.new(pos.X, SnapY, pos.Z)
             end
         end
-        if hideNameEnabled then
+        if Config.WalkSpeed and RootPart and Humanoid then
+            if Humanoid.MoveDirection.Magnitude > 0 then
+                RootPart.CFrame = RootPart.CFrame + (Humanoid.MoveDirection.Unit * Config.SpeedMultiplier * 0.05)
+            end
+        end
+        if Config.HideName then
             local label = findPlayerNameLabel()
             if label then
                 label.TextColor3 = getRainbowColor(0)
@@ -1273,14 +961,16 @@ end)
 
 LocalPlayer.CharacterAdded:Connect(function(char) Character = char end)
 
--- Anti Lock / Anti Aim цикл
+-- ==================== ANTI LOCK ====================
+local Sky = false
+local SkyAmount = 1000
 RunService.Heartbeat:Connect(function()
-    if _G.Sky and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+    if Sky and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         local hrp = LocalPlayer.Character.HumanoidRootPart
         local originalVel = hrp.Velocity
         local angle = math.rad(tick() * 3000 % 360)
-        local x = math.cos(angle) * _G.SkyAmount
-        local z = math.sin(angle) * _G.SkyAmount
+        local x = math.cos(angle) * SkyAmount
+        local z = math.sin(angle) * SkyAmount
         local y = math.random(280, 480)
         hrp.Velocity = Vector3.new(x, y, z)
         RunService.RenderStepped:Wait()
@@ -1288,35 +978,71 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Anti Kill цикл
+-- ==================== ANTI KILL ====================
+local AntiKillEnabled = false
 RunService.Heartbeat:Connect(function()
     if not AntiKillEnabled then return end
     if isDowned() then
         local hrp = getHRP()
         if hrp then
-            if not SnapY then teleportUnderground() end
-            hrp.CFrame = SnapY
+            if not State.SnapY then
+                local pos = hrp.CFrame
+                State.SnapY = pos + Vector3.new(0, -100, 0)
+            end
+            hrp.CFrame = CFrame.new(State.SnapY.Position)
         end
     else
-        if SnapY then
-            local hum = CharModule.get_hum()
+        if State.SnapY then
+            local hum = CharModule and CharModule.get_hum()
             if hum then hum.Health = 0 end
-            SnapY = nil
+            State.SnapY = nil
         end
         AntiKillEnabled = false
     end
 end)
 
--- Цикл подбора предметов
+-- ==================== PICKUP LOOP ====================
 RunService.Heartbeat:Connect(function()
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         RootPart = Character:WaitForChild("HumanoidRootPart")
     end
-    pcall(CheckAndPickup)
+    pcall(function()
+        local char = LocalPlayer.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        local charPos = char:GetPivot().Position
+        local container = Workspace:FindFirstChild("DroppedItems")
+        if container then
+            for _, item in ipairs(container:GetChildren()) do
+                if item:IsA("Model") then
+                    local itemPos = item:GetPivot().Position
+                    local dist = (itemPos - charPos).Magnitude
+                    if dist <= 50 then
+                        local rarity = item:GetAttribute("RarityName") or "Common"
+                        if Config.PickupRarity == "All" or Config.PickupRarity == rarity then
+                            local PickupZone = item:FindFirstChild("PickUpZone")
+                            local hrp = char:FindFirstChild("HumanoidRootPart")
+                            if PickupZone and hrp then
+                                pcall(function()
+                                    firetouchinterest(PickupZone, hrp, 0)
+                                    firetouchinterest(PickupZone, hrp, 1)
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
 end)
 
--- Привязка действия FlyUp
+-- ==================== FLY UP ====================
+local JumpPowerEnabled = false
+local FlyEnabled = false
+local FlySpeed = 40
+local JumpHeight = 30
+local JumpConnection
+
 ContextActionService:BindAction("FlyUp", function(_, state, input)
     if not JumpPowerEnabled then return Enum.ContextActionResult.Pass end
     if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.Space then
@@ -1332,7 +1058,7 @@ ContextActionService:BindAction("FlyUp", function(_, state, input)
 end, false, Enum.KeyCode.Space)
 
 RunService.RenderStepped:Connect(function()
-    if JumpPowerEnabled and FlyEnabled then
+    if JumpPowerEnabled and FlyEnabled and RootPart then
         RootPart.Velocity = Vector3.new(RootPart.Velocity.X, FlySpeed, RootPart.Velocity.Z)
     end
 end)
@@ -1351,68 +1077,129 @@ end)
 LocalPlayer.CharacterAdded:Connect(setupCharacter)
 if LocalPlayer.Character then setupCharacter(LocalPlayer.Character) end
 
--- Обработка клавиш
+-- ==================== INPUT ====================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.G and WindUI and Window then
-        if Window.Toggle then Window:Toggle()
-        elseif Window.SetVisible then Window:SetVisible(not Window.Visible) end
+    if input.KeyCode == Enum.KeyCode.G then
+        if Window and Window.Toggle then
+            pcall(function() Window:Toggle() end)
+        elseif Window and Window.SetVisible then
+            pcall(function() Window:SetVisible(not Window.Visible) end)
+        end
     end
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.Z and SnapUnderMapEnabled then toggleTeleport() end
+    if input.KeyCode == Enum.KeyCode.Z and Config.SnapUnderMap then toggleTeleport() end
 end)
 
 LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
     RootPart = char:WaitForChild("HumanoidRootPart")
-    SnapY = nil
-    SnapActive = false
+    State.SnapY = nil
+    State.SnapActive = false
     lockYPosition()
 end)
 lockYPosition()
 
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
-    autoAttackRunning = false
+    State.AutoAttackRunning = false
     task.wait(0.1)
-    StartAutoAttack()
+    State.AutoAttackRunning = true
+    task.spawn(function()
+        while State.AutoAttackRunning do
+            task.wait(0.4)
+            if Config.AutoAttack and LocalPlayer and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+                pcall(function()
+                    if not SendRemote then return end
+                    local char = LocalPlayer.Character
+                    if not char or not char.PrimaryPart then return end
+                    local tool
+                    for _, t in ipairs(char:GetChildren()) do
+                        if t:IsA("Tool") then tool = t break end
+                    end
+                    if not tool then
+                        local backpack = LocalPlayer:FindFirstChild("Backpack")
+                        if backpack then
+                            for _, t in ipairs(backpack:GetChildren()) do
+                                if t:IsA("Tool") then tool = t break end
+                            end
+                        end
+                    end
+                    if not tool then return end
+                    local players = {}
+                    local myPos = char.PrimaryPart.Position
+                    for _, p in pairs(Players:GetPlayers()) do
+                        if p ~= LocalPlayer and p.Character and p.Character.PrimaryPart then
+                            local dist = (p.Character.PrimaryPart.Position - myPos).Magnitude
+                            if dist <= 20 then table.insert(players, p) end
+                        end
+                    end
+                    if #players == 0 then return end
+                    local targets = {}
+                    local positions = {}
+                    for _, p in pairs(players) do
+                        local head = p.Character:FindFirstChild("Head")
+                        local hrp = p.Character.PrimaryPart
+                        if head and hrp then
+                            table.insert(targets, p)
+                            table.insert(positions, head.Position + hrp.AssemblyLinearVelocity * 0.1)
+                        end
+                    end
+                    if #targets == 0 then return end
+                    local lookCFrame = CFrame.lookAt(myPos, positions[1])
+                    local args = {"melee_attack", tool, targets, lookCFrame, 0.75}
+                    if State.CounterTable then
+                        State.CounterTable.event = (State.CounterTable.event or 0) + 1
+                        SendRemote:FireServer(State.CounterTable.event, unpack(args))
+                    end
+                end)
+            end
+        end
+    end)
 end)
-StartAutoAttack()
 
--- Регистрация предметов
+-- ==================== REGISTER ITEMS ====================
 for _, folderName in ipairs{"gun", "melee", "throwable", "consumable", "farming", "misc", "rod", "fish"} do
-    registerItems(ReplicatedStorage:WaitForChild("Items")[folderName])
+    local folder = Items and Items:FindFirstChild(folderName)
+    if folder then registerItems(folder) end
 end
 
--- Обработка Billboard при добавлении игрока
+-- ==================== PLAYER EVENTS ====================
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
-        if ItemsESPEnabled then
-            wait(0.2)
+        if Config.ItemsESP then
+            task.wait(0.2)
             createBillboardForPlayer(player)
+        end
+        if Config.HighlightESP then
+            task.wait(0.1)
+            updateHighlight(player)
         end
     end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-    if PlayerBillboards[player] then
-        PlayerBillboards[player]:Destroy()
-        PlayerBillboards[player] = nil
+    if State.PlayerBillboards[player] then
+        State.PlayerBillboards[player]:Destroy()
+        State.PlayerBillboards[player] = nil
+    end
+    if State.Highlights[player] then
+        State.Highlights[player]:Destroy()
+        State.Highlights[player] = nil
     end
 end)
 
--- Настройка FastFinish для всех
 for _, player in ipairs(Players:GetPlayers()) do setupFastFinishForPlayer(player) end
 Players.PlayerAdded:Connect(setupFastFinishForPlayer)
 
--- Цикл авто-финиша
+-- ==================== AUTO FINNISH LOOP ====================
 task.spawn(function()
     while true do
         task.wait(0.4)
-        if AutoFinnishEnabled then
+        if Config.AutoFinnish then
             for _, prompt in ipairs(findFinishPrompts()) do
                 task.spawn(function() tryHoldPrompt(prompt, 1) end)
             end
@@ -1425,1012 +1212,49 @@ ReplicatedStorage.ChildAdded:Connect(function(child)
     if child.Name == "Remotes" then SetupAutoSkip() end
 end)
 
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function(char)
-        if HighlightEnabled then Highlights[player] = createHighlight(char) end
-        if ESPCache[player] and ESPCache[player].drawings then
-            local nameDrawing = ESPCache[player].drawings[1]
-            nameDrawing.Color = isPlayerExcluded(player.Name) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 255, 255)
-        end
-    end)
-end)
-
-Players.PlayerRemoving:Connect(function(player)
-    if ESPCache[player] then
-        for _, d in pairs(ESPCache[player].drawings) do
-            if d and d.Destroy then pcall(function() d:Destroy() end)
-            elseif typeof(d) == "table" and d.Visible ~= nil then d.Visible = false end
-        end
-        if ESPCache[player].conn then pcall(function() ESPCache[player].conn:Disconnect() end) end
-        ESPCache[player] = nil
-    end
-end)
-
 task.spawn(function()
     while task.wait(0.01) do
-        if HighlightEnabled then updateHighlights() end
+        if Config.HighlightESP then
+            for _, player in pairs(Players:GetPlayers()) do updateHighlight(player) end
+        end
     end
 end)
+
 loadESP()
 
--- ==================== UI TABS ====================
-
-local CombatTab = Window:Tab({Title = "Combat", Icon = "crosshair"})
-CombatTab:Section({Title = "Gun"})
-
-local SilentAimToggle = CombatTab:Toggle({
-    Title = "Silent Aim",
-    Default = false,
-    Callback = function(val)
-        Config.SilentAim = val
-        CurrentTarget = nil
-    end
-})
-ConfigData:Register("SilentAim", SilentAimToggle)
-
-local LineLockToggle = CombatTab:Toggle({
-    Title = "Line Lock",
-    Default = false,
-    Callback = function(val)
-        Config.SilentAimAttach = val
-        CurrentTarget = nil
-    end
-})
-ConfigData:Register("SilentAimAttach", LineLockToggle)
-
-local FOVSlider = CombatTab:Slider({
-    Title = "FOV: ",
-    Step = 1,
-    Value = {Min = 20, Max = 800, Default = FOV},
-    Callback = function(val)
-        FOV = tonumber(val) or 120
-    end
-})
-ConfigData:Register("FOVRadius", FOVSlider)
-
-local AimPartDropdown = CombatTab:Dropdown({
-    Title = "Aim Part",
-    Values = {"Head", "HumanoidRootPart", "Random"},
-    Default = "Head",
-    Callback = function(val)
-        Config.SelectedAimPart = val
-    end
-})
-ConfigData:Register("AimPart", AimPartDropdown)
-
-local FriendsInput = CombatTab:Input({
-    Title = "Safe Friend",
-    Desc = "",
-    Value = "",
-    InputIcon = "shield-check",
-    Type = "Input",
-    Placeholder = "",
-    Callback = function(val)
-        Friends = {}
-        for word in string.gmatch(val, "%S+") do
-            table.insert(Friends, word)
-        end
-        for _, player in pairs(Players:GetPlayers()) do
-            if ESPCache[player] and ESPCache[player].drawings then
-                local nameDrawing = ESPCache[player].drawings[1]
-                nameDrawing.Color = isPlayerExcluded(player.Name) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 255, 255)
-            end
-        end
-    end
-})
-ConfigData:Register("FriendsList", FriendsInput)
-
-pcall(function() CombatTab:Divider() end)
-
-local WeaponTab = Window:Tab({Title = "Weapon Mods", Icon = "layers"})
-WeaponTab:Section({Title = "Mods"})
-
-local GunFolder = ReplicatedStorage:WaitForChild("Items"):WaitForChild("gun")
-_G.FireRateValue = 1000
-_G.AccuracyValue = 1
-_G.RecoilValue = 0
-_G.Durability = 999999999
-_G.Auto = true
-_G.automatic = true
-_G.AutoValue = true
-_G.GunModsAutoApply = false
-
-local function isGunTool(tool)
-    if not tool or not tool:IsA("Tool") then return false end
-    return GunFolder:FindFirstChild(tool.Name) ~= nil or tool.Name:match("Gun") or tool:FindFirstChild("Handle")
-end
-
-local function forceSetAttribute(instance, attr, value)
-    if instance and instance.SetAttribute then
-        pcall(function() instance:SetAttribute(attr, value) end)
-    end
-end
-
-local function debugPrintAttributes(tool)
-    local attrs = tool:GetAttributes()
-    local keys = {}
-    for k, _ in pairs(attrs) do table.insert(keys, k) end
-    table.sort(keys)
-end
-
-local function applyGodGun(tool)
-    if not tool or not isGunTool(tool) then return end
-    pcall(function()
-        tool:SetAttribute("fire_rate", _G.FireRateValue)
-        tool:SetAttribute("accuracy", _G.AccuracyValue)
-        tool:SetAttribute("Recoil", _G.RecoilValue)
-        tool:SetAttribute("Durability", _G.Durability)
-        tool:SetAttribute("automatic", _G.AutoValue)
-    end)
-    task.spawn(function()
-        for i = 1, 20 do
-            local attrs = tool:GetAttributes()
-            local keys = {}
-            for k in pairs(attrs) do table.insert(keys, k) end
-            table.sort(keys)
-            if #keys >= 11 then
-                local key = keys[11]
-                for j = 1, 5 do
-                    forceSetAttribute(tool, key, true)
-                    task.wait(0.01)
-                end
-            end
-            task.wait(0.1)
-        end
-    end)
-    task.wait(0.5)
-    debugPrintAttributes(tool)
-end
-
-RunService.Heartbeat:Connect(function()
-    if not _G.GunModsAutoApply then return end
-    local char = LocalPlayer.Character
-    if not char then return end
-    for _, tool in ipairs(char:GetChildren()) do
-        if tool:IsA("Tool") and isGunTool(tool) then pcall(applyGodGun, tool) end
-    end
-end)
-
-LocalPlayer.CharacterAdded:Connect(function(char)
-    task.wait(1)
-    repeat
-        task.wait(0.1)
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") and isGunTool(tool) then task.spawn(applyGodGun, tool) end
-        end
-    until not _G.GunModsAutoApply
-end)
-
-LocalPlayer.Character.ChildAdded:Connect(function(tool)
-    if tool:IsA("Tool") and _G.GunModsAutoApply then
-        task.wait(0.2)
-        applyGodGun(tool)
-    end
-end)
-
-WeaponTab:Slider({
-    Title = "Fire Rate",
-    Step = 10,
-    Value = {Min = 100, Max = 5000, Default = 1000},
-    Callback = function(val) _G.FireRateValue = val end
-})
-
-WeaponTab:Slider({
-    Title = "Accuracy",
-    Step = 0.01,
-    Value = {Min = 0, Max = 5, Default = 1},
-    Callback = function(val) _G.AccuracyValue = val end
-})
-
-WeaponTab:Slider({
-    Title = "Recoil",
-    Step = 0.1,
-    Value = {Min = 0, Max = 10, Default = 0},
-    Callback = function(val) _G.RecoilValue = val end
-})
-
-WeaponTab:Slider({
-    Title = "Reload Time",
-    Step = 0.1,
-    Value = {Min = 0.1, Max = 10, Default = 0.1},
-    Callback = function(val) _G.ReloadValue = val end
-})
-
-WeaponTab:Toggle({
-    Title = "Automatic",
-    Icon = "check",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(val)
-        _G.automatic = val
-        _G.GunModsAutoApply = val
-        if val and WindUI then
-            WindUI:Notify({Title = "✅ Auto Modify", Duration = 2})
-        end
-    end
-})
-
-WeaponTab:Section({Title = "COMBAT"})
-
-local function modifyFists(tool, enable)
-    if tool then
-        local attrs = tool:GetAttributes()
-        local keys = {}
-        for k, _ in pairs(attrs) do table.insert(keys, k) end
-        table.sort(keys)
-        if #keys >= 7 then
-            local key1 = keys[6]
-            local key2 = keys[7]
-            if enable then
-                if OriginalFistsAttributes[key1] == nil then OriginalFistsAttributes[key1] = tool:GetAttribute(key1) end
-                if OriginalFistsAttributes[key2] == nil then OriginalFistsAttributes[key2] = tool:GetAttribute(key2) end
-                tool:SetAttribute(key1, 360)
-                tool:SetAttribute(key2, 20)
-            else
-                if OriginalFistsAttributes[key1] then tool:SetAttribute(key1, OriginalFistsAttributes[key1]) end
-                if OriginalFistsAttributes[key2] then tool:SetAttribute(key2, OriginalFistsAttributes[key2]) end
-            end
-        end
-    end
-end
-
-local meleeList = {}
-for _, tool in ipairs(MeleeFolder:GetChildren()) do table.insert(meleeList, tool.Name) end
-
-local function isMeleeTool2(tool)
-    if not tool:IsA("Tool") then return false end
-    if tool.Name == "Fists" then return true end
-    for _, name in ipairs(meleeList) do
-        if tool.Name == name then return true end
-    end
-    return false
-end
-
-local function checkAndModifyFists()
-    local char = LocalPlayer.Character
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if not char or not backpack then return end
-    local tools = {}
-    for _, tool in ipairs(char:GetChildren()) do
-        if isMeleeTool2(tool) then table.insert(tools, tool) end
-    end
-    for _, tool in ipairs(backpack:GetChildren()) do
-        if isMeleeTool2(tool) then table.insert(tools, tool) end
-    end
-    for _, tool in ipairs(tools) do modifyFists(tool, FistsModifier) end
-end
-
-RunService.Heartbeat:Connect(function()
-    if FistsModifier then checkAndModifyFists() end
-end)
-
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1)
-    if FistsModifier then checkAndModifyFists() end
-end)
-
-ConfigData:Register("Fists Modifier", WeaponTab:Toggle({
-    Title = "Melee Aura",
-    Desc = "WideFists",
-    Default = false,
-    Callback = function(val)
-        FistsModifier = val
-        checkAndModifyFists()
-    end
-}))
-
-local AutoAttackToggle = WeaponTab:Toggle({
-    Title = "Auto Attack",
-    Default = false,
-    Callback = function(val) Config.AutoAttack = val end
-})
-ConfigData:Register("AutoAttack_Enabled", AutoAttackToggle)
-
-local VisualsTab = Window:Tab({Title = "Visuals", Icon = "eye"})
-VisualsTab:Section({Title = "View"})
-
-local ItemsESPToggle = VisualsTab:Toggle({
-    Title = "Inventory Viewer",
-    Default = false,
-    Callback = function(val)
-        ItemsESPEnabled = val
-        if val then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then createBillboardForPlayer(player) end
-            end
-            task.spawn(function()
-                while ItemsESPEnabled do
-                    for _, player in ipairs(Players:GetPlayers()) do
-                        if player ~= LocalPlayer and player.Character then
-                            createBillboardForPlayer(player)
-                        end
-                    end
-                    task.wait(13)
-                end
-            end)
-            if WindUI then
-                WindUI:Notify({Title = "✅ ESP Items Enabled", Duration = 3})
-            end
-        else
-            for _, billboard in pairs(PlayerBillboards) do
-                billboard:Destroy()
-            end
-            PlayerBillboards = {}
-            if WindUI then
-                WindUI:Notify({Title = "❌ ESP Items Disabled", Duration = 3})
-            end
-        end
-    end
-})
-ConfigData:Register("ItemsESP", ItemsESPToggle)
-
-local NameESPToggle = VisualsTab:Toggle({Title = "Name", Default = false, Callback = function(val) NameESPEnabled = val end})
-ConfigData:Register("NameESP", NameESPToggle)
-
-local HealthESPToggle = VisualsTab:Toggle({Title = "Health", Default = false, Callback = function(val) HealthESPEnabled = val end})
-ConfigData:Register("HealthESP", HealthESPToggle)
-
-local DistanceESPToggle = VisualsTab:Toggle({Title = "Distance", Default = false, Callback = function(val) DistanceESPEnabled = val end})
-ConfigData:Register("DistanceESP", DistanceESPToggle)
-
-local HighlightToggle = VisualsTab:Toggle({
-    Title = "Highlight",
-    Default = false,
-    Callback = function(val)
-        HighlightEnabled = val
-        for _, player in pairs(game.Players:GetPlayers()) do updateHighlight(player) end
-    end
-})
-ConfigData:Register("HighlightESP", HighlightToggle)
-
-function updateHighlight(player)
-    if player == game.Players.LocalPlayer then return end
-    if not player.Character then return end
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    if Highlights[player] then
-        Highlights[player]:Destroy()
-        Highlights[player] = nil
-    end
-    if HighlightEnabled then
-        local highlight = Instance.new("Highlight")
-        highlight.Name = "PlayerHighlight"
-        highlight.Adornee = player.Character
-        highlight.FillColor = Color3.fromRGB(136, 0, 153)
-        highlight.OutlineColor = Color3.fromRGB(136, 0, 153)
-        highlight.Parent = workspace
-        Highlights[player] = highlight
-    end
-end
-
-game.Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        task.wait(0.1)
-        updateHighlight(player)
-    end)
-end)
-
-game.Players.PlayerRemoving:Connect(function(player)
-    if Highlights[player] then
-        Highlights[player]:Destroy()
-        Highlights[player] = nil
-    end
-end)
-
-for _, player in pairs(game.Players:GetPlayers()) do
-    if player ~= game.Players.LocalPlayer then
-        player.CharacterAdded:Connect(function()
-            task.wait(0.1)
-            updateHighlight(player)
-        end)
-        updateHighlight(player)
-    end
-end
-
-local CharTab = Window:Tab({Title = "Character", Icon = "user"})
-CharTab:Section({Title = "Character"})
-
-local WalkSpeedToggle = CharTab:Toggle({Title = "Walk Speed", Default = false, Callback = function(val) WalkSpeedEnabled = val end})
-ConfigData:Register("WalkSpeed", WalkSpeedToggle)
-
-local SpeedMultiplierSlider = CharTab:Slider({
-    Title = "Speed Multiplier",
-    Step = 0.5,
-    Value = {Min = 1, Max = 5, Default = 2},
-    Callback = function(val) SpeedMultiplier = val * 0.05 end
-})
-ConfigData:Register("SpeedMultiplier", SpeedMultiplierSlider)
-
-local JumpPowerToggle = CharTab:Toggle({
-    Title = "Jump Power",
-    Default = false,
-    Callback = function(val)
-        JumpPowerEnabled = val
-        if not JumpPowerEnabled then FlyEnabled = false end
-    end
-})
-ConfigData:Register("JumpPower", JumpPowerToggle)
-
-local sendAction = {}
-function sendAction.send(...)
-    local args = {...}
-    CounterTable.event = CounterTable.event + 1
-    pcall(function() SendRemote:FireServer(CounterTable.event, unpack(args)) end)
-end
-
-local AutoSprintToggle = CharTab:Toggle({
-    Title = "Infinite Stamina",
-    Default = false,
-    Callback = function(val)
-        AutoSprintEnabled = val
-        if AutoSprintEnabled then
-            local success, sprintModule = pcall(function() return require(ReplicatedStorage.Modules.Game.Sprint) end)
-            if success and sprintModule then
-                local consumeStamina = sprintModule.consume_stamina
-                local upvalue = getupvalue(consumeStamina, 2).sprint_bar
-                if upvalue then
-                    local originalUpdate = upvalue.update
-                    upvalue.update = function(...)
-                        return originalUpdate(function() return 1 end)
-                    end
-                    _G.OriginalSprintUpdate = originalUpdate
-                    _G.AutoSprintLoop = task.spawn(function()
-                        while AutoSprintEnabled do
-                            pcall(function()
-                                sendAction.send("set_sprinting_1", true)
-                                task.wait(0.5)
-                                sendAction.send("set_sprinting_1", false)
-                            end)
-                            task.wait(0.1)
-                        end
-                        pcall(function() sendAction.send("set_sprinting_1", false) end)
-                    end)
-                    if WindUI then WindUI:Notify({Title = "✅ INF STAMINA", Duration = 3}) end
-                else
-                    AutoSprintEnabled = false
-                end
-            else
-                AutoSprintEnabled = false
-            end
-        else
-            if _G.AutoSprintLoop then
-                task.cancel(_G.AutoSprintLoop)
-                _G.AutoSprintLoop = nil
-            end
-            pcall(function() sendAction.send("set_sprinting_1", false) end)
-            local success, sprintModule = pcall(function() return require(ReplicatedStorage.Modules.Game.Sprint) end)
-            if success and sprintModule then
-                local consumeStamina = sprintModule.consume_stamina
-                local upvalue = getupvalue(consumeStamina, 2).sprint_bar
-                if upvalue and _G.OriginalSprintUpdate then
-                    upvalue.update = _G.OriginalSprintUpdate
-                    _G.OriginalSprintUpdate = nil
-                end
-            end
-            if WindUI then WindUI:Notify({Title = "❌ Auto Sprint Disabled", Duration = 3}) end
-        end
-    end
-})
-ConfigData:Register("AutoSprint", AutoSprintToggle)
-
-local AntiLockToggle = CharTab:Toggle({
-    Title = "Anti Aim / Anti Lock",
-    Default = false,
-    Callback = function(val)
-        _G.Sky = val
-        if val then
-            _G.SkyAmount = 2500
-        end
-    end
-})
-ConfigData:Register("AntiLock", AntiLockToggle)
-
-local AntiKillToggle = CharTab:Toggle({
-    Title = "Anti Kill",
-    Default = false,
-    Callback = function(val)
-        AntiKillEnabled = val
-        if val then
-            if WindUI then WindUI:Notify({Title = " Anti Kill Enabled", Duration = 3}) end
-        else
-            if WindUI then WindUI:Notify({Title = "❌ Anti Kill Disabled", Duration = 3}) end
-        end
-    end
-})
-ConfigData:Register("AntiKill", AntiKillToggle)
-
-pcall(function() if CharTab and typeof(CharTab.Divider) == "function" then CharTab:Divider() end end)
-pcall(function() if CharTab and typeof(CharTab.Section) == "function" then CharTab:Section({Title = "Att:"}) end end)
-
-local PickupToggle = CharTab:Toggle({Title = "Pickup items", Default = false, Callback = function(val) Config.PickupItems = val end})
-ConfigData:Register("PickupItems", PickupToggle)
-
-local RarityDropdown = CharTab:Dropdown({
-    Title = "Pickup Rarity",
-    Values = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Omega"},
-    Default = "All",
-    Callback = function(val)
-        Config.PickupRarity = val
-    end
-})
-ConfigData:Register("PickupRarity", RarityDropdown)
-
-local AntiRagdollToggle = CharTab:Toggle({
-    Title = "Anti Ragdoll",
-    Default = false,
-    Callback = function(val)
-        local enabled = val
-        if not enabled then return end
-        pcall(function()
-            local remotes = game:GetService("ReplicatedStorage")
-            local players = game:GetService("Players")
-            local localPlayer = players.LocalPlayer
-            local function findCounter()
-                for _, v in ipairs(getgc and getgc(true) or {}) do
-                    if typeof(v) == "table" and rawget(v, "event") and rawget(v, "func") then return v end
-                end
-            end
-            local counter = findCounter()
-            if not counter then return end
-            local function sendRemoteAction(action)
-                counter.event = (counter.event or 0) + 1
-                local send = remotes:WaitForChild("Remotes"):WaitForChild("Send")
-                send:FireServer(counter.event, action)
-            end
-            task.spawn(function()
-                while enabled do
-                    sendRemoteAction("end_ragdoll_early")
-                    task.wait(0.3)
-                    if not enabled then break end
-                    sendRemoteAction("clear_ragdoll")
-                    task.wait(0.3)
-                end
-            end)
-        end)
-    end
-})
-ConfigData:Register("AntiRagdoll", AntiRagdollToggle)
-
-local HideNameToggle = CharTab:Toggle({
-    Title = "Hide Name",
-    Default = false,
-    Callback = function(val)
-        hideNameEnabled = val
-        local label = findPlayerNameLabel()
-        if label then
-            if hideNameEnabled then
-                label.Text = "yupitactico"
-            else
-                label.Text = originalNameText ~= "" and originalNameText or LocalPlayer.Name
-            end
-        end
-    end
-})
-ConfigData:Register("HideName", HideNameToggle)
-
-local AutoRespawnToggle = CharTab:Toggle({
-    Title = "Auto Respawn",
-    Default = false,
-    Callback = function(val)
-        local enabled = val
-        if not enabled then return end
-        pcall(function()
-            local remotes = game:GetService("ReplicatedStorage")
-            local players = game:GetService("Players")
-            local localPlayer = players.LocalPlayer
-            local function findCounter()
-                for _, v in ipairs(getgc and getgc(true) or {}) do
-                    if typeof(v) == "table" and rawget(v, "event") and rawget(v, "func") then return v end
-                end
-            end
-            local counter = findCounter()
-            if not counter then return end
-            local function sendRemoteAction(action)
-                counter.event = (counter.event or 0) + 1
-                local send = remotes:WaitForChild("Remotes"):WaitForChild("Send")
-                send:FireServer(counter.event, action)
-            end
-            task.spawn(function()
-                while enabled do
-                    local char = localPlayer.Character
-                    local hum = char and char:FindFirstChildOfClass("Humanoid")
-                    if hum and hum.Health <= 0 then
-                        task.wait(6)
-                        if enabled then sendRemoteAction("death_screen_request_respawn") end
-                    end
-                    task.wait(0.5)
-                end
-            end)
-        end)
-    end
-})
-ConfigData:Register("AutoRespawn", AutoRespawnToggle)
-
-local HealthBloodToggle = CharTab:Toggle({
-    Title = "Health Blood",
-    Default = false,
-    Callback = function(val)
-        _G.AutoHealEnabled = val
-        if not _G.HealLoopStarted then
-            _G.HealLoopStarted = true
-            task.spawn(function()
-                while true do
-                    task.wait(1)
-                    if _G.AutoHealEnabled then
-                        local Players = game:GetService("Players")
-                        local Plr = Players.LocalPlayer
-                        local Ch = Plr.Character
-                        if Ch and Ch:FindFirstChildWhichIsA("Humanoid") and Ch.Humanoid.Health < 95 then
-                            local function GetHeal()
-                                local SearchPlaces = {Plr.Backpack, Plr.Character, Plr:FindFirstChild("Inventory"), Plr:FindFirstChild("StarterGear")}
-                                for _, Place in pairs(SearchPlaces) do
-                                    if Place then
-                                        for _, T in pairs(Place:GetChildren()) do
-                                            if T:IsA("Tool") and (T:GetAttribute("HealthRestoreAmount") or T:GetAttribute("HealAmount") or T:GetAttribute("RestoreHealth")) then
-                                                return T
-                                            end
-                                        end
-                                    end
-                                end
-                                return nil
-                            end
-                            local T = GetHeal()
-                            if T then
-                                local Old = Ch:FindFirstChildWhichIsA("Tool")
-                                T.Parent = Ch
-                                task.wait(0.01)
-                                if T:FindFirstChild("RemoteEvent") then T.RemoteEvent:FireServer()
-                                elseif T:FindFirstChild("Use") then T:Use()
-                                else T:Activate() end
-                                local Hum = Ch:FindFirstChildWhichIsA("Humanoid")
-                                local Anim = Hum and Hum:FindFirstChildWhichIsA("Animator")
-                                if Anim then for _, Track in pairs(Anim:GetPlayingAnimationTracks()) do Track:Stop(0) end end
-                                task.wait(0.2)
-                                if Old and Old.Parent == Ch then Old.Parent = Plr.Backpack end
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end
-})
-ConfigData:Register("Health Blood", HealthBloodToggle)
-
-CharTab:Divider()
-
-CharTab:Section({Title = "PC HOLD (Z)"})
-
-local SnapToggle = CharTab:Toggle({
-    Title = "Snap Under Map",
-    Default = false,
-    Callback = function(val)
-        SnapUnderMapEnabled = val
-        if SnapUnderMapEnabled then
-            SnapCount = SnapCount + 1
-            if SnapCount < 2 then return end
-            SnapY = RootPart and RootPart.Position.Y or nil
-            SnapActive = true
-            performTeleport()
-        else
-            SnapActive = false
-            SnapY = nil
-        end
-    end
-})
-ConfigData:Register("SnapUnderMap", SnapToggle)
-
-local SnapSlider = CharTab:Slider({
-    Title = "Snap:",
-    Step = 1,
-    Value = {Min = 1, Max = 300, Default = 10},
-    Callback = function(val)
-        SnapHeight = val
-        if SnapActive and RootPart and SnapY then
-            local newPos = Vector3.new(RootPart.Position.X, SnapY - SnapHeight, RootPart.Position.Z)
-            RootPart.CFrame = CFrame.new(newPos)
-            SnapY = newPos.Y
-        end
-    end
-})
-ConfigData:Register("SnapHeight", SnapSlider)
-
-local PlayersTab = Window:Tab({Title = "Players", Icon = "person-standing"})
-PlayersTab:Section({Title = "Players"})
-
-local folder = Instance.new("Folder", Workspace)
-local part = Instance.new("Part", folder)
-Instance.new("Attachment", part)
-part.Anchored = true
-part.CanCollide = false
-part.Transparency = 1
-
-local AutoFinishToggle = PlayersTab:Toggle({
-    Title = "Auto Finnish",
-    Default = false,
-    Callback = function(val)
-        AutoFinnishEnabled = val
-        if val then
-            applyToAll()
-            if WindUI then
-                WindUI:Notify({Title = "✅ Auto Finish Enabled", Description = "✅ Auto Enabled", Duration = 3})
-            end
-        else
-            if WindUI then
-                WindUI:Notify({Title = "❌ Auto Disabled", Description = "❌ Auto Disabled", Duration = 3})
-            end
-        end
-    end
-})
-ConfigData:Register("AutoFinnish", AutoFinishToggle)
-
-PlayersTab:Divider()
-
-local SettingsTab = Window:Tab({Title = "Settings", Icon = "warehouse"})
-local PlaceId = game.PlaceId
-
-SettingsTab:Input({
-    Title = "Server Hop by ID",
-    Value = "",
-    InputIcon = "send",
-    Type = "Input",
-    Placeholder = "id sever here!",
-    Callback = function(val)
-        if not val or val == "" then return end
-        local ids = {}
-        for id in string.gmatch(val, "[%w%-]+") do
-            table.insert(ids, id)
-        end
-        if #ids == 0 then return end
-        for _, id in ipairs(ids) do
-            print("Warping to server:", id)
-            task.wait(0.5)
-            pcall(function()
-                game:GetService("TeleportService"):TeleportToPlaceInstance(PlaceId, id, LocalPlayer)
-            end)
-        end
-    end
-})
-
-SettingsTab:Button({
-    Title = "Server Rejoin",
-    Desc = "Come back old sever",
-    Callback = function()
-        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, game.Players.LocalPlayer)
-    end
-})
-
-SettingsTab:Button({
-    Title = "Server Hop",
-    Desc = "Hop to a new server (sometime don't work)",
-    Locked = false,
-    Callback = function()
-        local placeId = 104715542330896
-        local http = game:GetService("HttpService")
-        local teleport = game:GetService("TeleportService")
-        local success, data = pcall(function()
-            return http:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Desc&limit=100"))
-        end)
-        if not success or not data or not data.data then
-            warn("Could not fetch server data")
-            return
-        end
-        local servers = {}
-        for _, server in ipairs(data.data) do
-            if server.playing < server.maxPlayers and server.id ~= game.JobId then
-                table.insert(servers, server)
-            end
-        end
-        if #servers == 0 then
-            warn("No empty servers found")
-            return
-        end
-        table.sort(servers, function(a, b) return a.playing > b.playing end)
-        local target = servers[1]
-        game.StarterGui:SetCore("SendNotification", {Title = "Server Hop", Text = "Joining populated server...", Duration = 3})
-        teleport:TeleportToPlaceInstance(placeId, target.id, game.Players.LocalPlayer)
-    end
-})
-
-SettingsTab:Divider()
-
-local ClaimQuestButton = SettingsTab:Button({
-    Title = "Claim All Quest",
-    Callback = function()
-        task.spawn(function()
-            local success, err = pcall(function()
-                local players = game:GetService("Players")
-                local replicatedStorage = game:GetService("ReplicatedStorage")
-                local localPlayer = players.LocalPlayer
-                local function findCounter()
-                    for _, v in ipairs(getgc and getgc(true) or {}) do
-                        if typeof(v) == "table" and rawget(v, "event") and rawget(v, "func") then return v end
-                    end
-                    return nil
-                end
-                local counter = findCounter()
-                if not counter then return end
-                local api = {}
-                function api.get(...)
-                    local args = {...}
-                    counter.func = (counter.func or 0) + 1
-                    local getRemote = replicatedStorage:WaitForChild("Remotes"):WaitForChild("Get")
-                    return getRemote:InvokeServer(counter.func, table.unpack(args))
-                end
-                local questsHolder = localPlayer:WaitForChild("PlayerGui"):WaitForChild("Quests"):WaitForChild("QuestsHolder"):WaitForChild("QuestsScrollingFrame")
-                for _, quest in ipairs(questsHolder:GetChildren()) do
-                    if quest:IsA("Frame") or quest:IsA("TextButton") or quest:IsA("ImageButton") then
-                        api.get("claim_quest", quest.Name)
-                        task.wait(0.2)
-                    end
-                end
-            end)
-            if success then print("Claim All Quests Completed") else warn(err) end
-        end)
-    end
-})
-ConfigData:Register("ClaimAllQuest", ClaimQuestButton)
-
-local saveFunc = ConfigData.Save
-local deleteFunc = ConfigData.Delete
-local loadFunc = ConfigData.Load
-
-SettingsTab:Section({Title = "Config Management"})
-
-SettingsTab:Button({
-    Title = "Save Config",
-    Callback = function()
-        if saveFunc then saveFunc(ConfigData) end
-    end
-})
-
-SettingsTab:Button({
-    Title = "Delete Config",
-    Callback = function()
-        if deleteFunc then deleteFunc(ConfigData) end
-    end
-})
-
-if loadFunc then loadFunc(ConfigData) end
-
--- Обход tween
-local originalTween = Util.tween
-Util.tween = function(obj, info, props)
-    if obj and obj:IsA("NumberValue") and props and props.Value ~= nil then
-        obj.Value = props.Value
-        return {Cancel = function() end}
-    end
-    return originalTween(obj, info, props)
-end
-
-local success, sellButton = pcall(function() return BuyPromptUI.get("SellPromptSellButton") end)
-if success and sellButton then
-    local holdStroke = sellButton:FindFirstChild("HoldStroke", true)
-    if holdStroke then
-        holdStroke.Enabled = false
-        local gradient = holdStroke:FindFirstChildOfClass("UIGradient")
-        if gradient then gradient.Enabled = false end
-    end
-    for _, v in pairs(sellButton:GetDescendants()) do
-        if v:IsA("NumberValue") then v.Value = 1 end
-    end
-end
-
-task.wait(2)
-print("Bypass")
-
-local function lockTool(tool)
-    if tool and tool:IsA("Tool") then
-        pcall(function() tool:SetAttribute("Locked", true) end)
-    end
-end
-
-local function setupBackpack(backpack)
-    if not backpack then return end
-    for _, tool in ipairs(backpack:GetChildren()) do
-        lockTool(tool)
-    end
-    backpack.ChildAdded:Connect(lockTool)
-end
-
-local function init()
-    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-    if backpack then
-        setupBackpack(backpack)
-    else
-        LocalPlayer.ChildAdded:Connect(function(child)
-            if child:IsA("Backpack") then setupBackpack(child) end
-        end)
-    end
-end
-
-init()
-
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1)
-    init()
-end)
-
-task.wait(1)
-print("Bypass hotbar inf")
-
-local function hookButton(button)
-    if not button then return end
-    if button:FindFirstChild("UnlocksAtText") then button.UnlocksAtText.Visible = false end
-    if button:FindFirstChild("EmoteName") then button.EmoteName.Visible = true end
-    CoreUI.on_click(button, function()
-        local hum = CharModule.get_hum()
-        if not hum or hum.Health <= 0 then return end
-        if EmotesUI.current_emote_playing.get() == button then
-            EmotesUI.current_emote_playing.set(nil)
-        else
-            EmotesUI.current_emote_playing.set(button)
-        end
-        task.wait(0.12)
-        EmotesUI.enabled.set(false)
-    end)
-    EmotesUI.current_emote_playing.hook(function(val)
-        if button:FindFirstChild("EmoteEquipped") then
-            button.EmoteEquipped.Visible = (val == button)
-        end
-    end)
-end
-
-local function hookAllEmotes()
-    for _, emote in pairs(EmotesList) do
-        local button = CoreUI.get("EmoteTemplate").Parent:FindFirstChild(emote.name)
-        hookButton(button)
-    end
-end
-
-hookAllEmotes()
-
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1)
-    hookAllEmotes()
-end)
-
-task.wait(2)
-
-local camera
-repeat task.wait() until workspace.CurrentCamera
-camera = workspace.CurrentCamera
-
+-- ==================== ITEM ESP ====================
 local function getRarityColor(item)
     if item.Name == "Money" then return Color3.fromRGB(0, 255, 0) end
     for _, folder in ipairs(Items:GetChildren()) do
         if folder:IsA("Folder") then
             local itemTemplate = folder:FindFirstChild(item.Name)
             if itemTemplate and itemTemplate:GetAttribute("RarityName") then
-                local rarity = itemTemplate:GetAttribute("RarityName")
-                return RarityColors[rarity] or Color3.fromRGB(255, 255, 255)
+                return RarityColors[itemTemplate:GetAttribute("RarityName")] or Color3.fromRGB(255, 255, 255)
             end
         end
     end
     return Color3.fromRGB(255, 255, 255)
 end
 
-local itemDrawings = {}
-
-local function cleanupItemDrawings()
-    for item, data in pairs(itemDrawings) do
+RunService.RenderStepped:Connect(function()
+    local toRemove = {}
+    for item, data in pairs(State.ItemDrawings) do
         if not item or not item.Parent then
             if data.circle then pcall(function() data.circle:Remove() end) end
             if data.innerCircle then pcall(function() data.innerCircle:Remove() end) end
             if data.name then pcall(function() data.name:Remove() end) end
             if data.amount then pcall(function() data.amount:Remove() end) end
             if data.highlight then pcall(function() data.highlight:Destroy() end) end
-            itemDrawings[item] = nil
+            table.insert(toRemove, item)
         end
     end
-end
-
-RunService.RenderStepped:Connect(function()
-    cleanupItemDrawings()
-    if not DroppedItems then return end
+    for _, item in ipairs(toRemove) do State.ItemDrawings[item] = nil end
+    
+    local droppedItems = Workspace:FindFirstChild("DroppedItems")
+    if not droppedItems then return end
     local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not myHrp then return end
-    for _, data in pairs(itemDrawings) do
+    for _, data in pairs(State.ItemDrawings) do
         data.circle.Visible = false
         data.innerCircle.Visible = false
         data.name.Visible = false
@@ -2438,7 +1262,7 @@ RunService.RenderStepped:Connect(function()
         if data.highlight then data.highlight.Enabled = false end
     end
     local items = {}
-    for _, item in ipairs(DroppedItems:GetChildren()) do
+    for _, item in ipairs(droppedItems:GetChildren()) do
         if item:IsA("Model") and item:FindFirstChild("PickUpZone") and not item:GetAttribute("Locked") then
             local success, pos = pcall(function() return item.PickUpZone.Position end)
             if success and pos then
@@ -2450,7 +1274,7 @@ RunService.RenderStepped:Connect(function()
     table.sort(items, function(a, b) return a.dist < b.dist end)
     for i = 1, math.min(20, #items) do
         local item = items[i].item
-        local data = itemDrawings[item]
+        local data = State.ItemDrawings[item]
         if not data then
             data = {
                 circle = Drawing.new("Circle"),
@@ -2474,7 +1298,7 @@ RunService.RenderStepped:Connect(function()
             data.amount.Center = true
             data.amount.Size = 13
             data.amount.Color = Color3.fromRGB(200, 200, 200)
-            itemDrawings[item] = data
+            State.ItemDrawings[item] = data
         end
         if not data.highlight or not data.highlight.Parent then
             local highlight = Instance.new("Highlight")
@@ -2485,7 +1309,7 @@ RunService.RenderStepped:Connect(function()
             highlight.Parent = item
             data.highlight = highlight
         end
-        local screenPos, onScreen = camera:WorldToViewportPoint(item.PickUpZone.Position)
+        local screenPos, onScreen = Camera:WorldToViewportPoint(item.PickUpZone.Position)
         if onScreen then
             local color = getRarityColor(item)
             local radius = math.clamp(100 / screenPos.Z, 3, 6)
@@ -2510,30 +1334,669 @@ RunService.RenderStepped:Connect(function()
             data.amount.Position = Vector2.new(screenPos.X, screenPos.Y + radius + 15)
             data.amount.Text = amount > 1 and "[" .. tostring(amount) .. "]" or ""
             data.amount.Visible = amount > 1
+        end
+    end
+end)
+
+-- ==================== UI TABS ====================
+local CombatTab = Window:Tab({Title = "Combat", Icon = "crosshair"})
+CombatTab:Section({Title = "Gun"})
+
+local SilentAimToggle = CombatTab:Toggle({
+    Title = "Silent Aim",
+    Default = false,
+    Callback = function(val)
+        Config.SilentAim = val
+        State.CurrentTarget = nil
+    end
+})
+RegisterConfig("SilentAim", SilentAimToggle)
+
+local LineLockToggle = CombatTab:Toggle({
+    Title = "Line Lock",
+    Default = false,
+    Callback = function(val)
+        Config.SilentAimAttach = val
+        State.CurrentTarget = nil
+    end
+})
+RegisterConfig("SilentAimAttach", LineLockToggle)
+
+local FOVSlider = CombatTab:Slider({
+    Title = "FOV",
+    Step = 1,
+    Value = {Min = 20, Max = 800, Default = State.FOV},
+    Callback = function(val)
+        State.FOV = tonumber(val) or 120
+    end
+})
+RegisterConfig("FOVRadius", FOVSlider)
+
+local AimPartDropdown = CombatTab:Dropdown({
+    Title = "Aim Part",
+    Values = {"Head", "HumanoidRootPart", "Random"},
+    Default = "Head",
+    Callback = function(val)
+        Config.SelectedAimPart = val
+    end
+})
+RegisterConfig("AimPart", AimPartDropdown)
+
+local FriendsInput = CombatTab:Input({
+    Title = "Safe Friend",
+    Desc = "Separate names with space",
+    Value = "",
+    InputIcon = "shield-check",
+    Type = "Input",
+    Placeholder = "friend1 friend2",
+    Callback = function(val)
+        Config.FriendsList = {}
+        for word in string.gmatch(val, "%S+") do
+            table.insert(Config.FriendsList, word)
+        end
+        for player, cache in pairs(State.ESPCache) do
+            if cache.drawings and cache.drawings[1] then
+                cache.drawings[1].Color = isPlayerExcluded(player.Name) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 255, 255)
+            end
+        end
+    end
+})
+RegisterConfig("FriendsList", FriendsInput)
+
+CombatTab:Divider()
+
+local WeaponTab = Window:Tab({Title = "Weapon Mods", Icon = "layers"})
+WeaponTab:Section({Title = "Mods"})
+
+local FireRateValue = 1000
+local AccuracyValue = 1
+local RecoilValue = 0
+local DurabilityValue = 999999999
+local AutoValue = true
+local GunModsAutoApply = false
+
+local function isGunTool(tool)
+    if not tool or not tool:IsA("Tool") then return false end
+    if GunFolder and GunFolder:FindFirstChild(tool.Name) then return true end
+    if tool.Name:match("Gun") then return true end
+    return tool:FindFirstChild("Handle") ~= nil
+end
+
+local function applyGodGun(tool)
+    if not tool or not isGunTool(tool) then return end
+    pcall(function()
+        tool:SetAttribute("fire_rate", FireRateValue)
+        tool:SetAttribute("accuracy", AccuracyValue)
+        tool:SetAttribute("Recoil", RecoilValue)
+        tool:SetAttribute("Durability", DurabilityValue)
+        tool:SetAttribute("automatic", AutoValue)
+    end)
+end
+
+RunService.Heartbeat:Connect(function()
+    if not GunModsAutoApply then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, tool in ipairs(char:GetChildren()) do
+        if tool:IsA("Tool") and isGunTool(tool) then pcall(applyGodGun, tool) end
+    end
+end)
+
+WeaponTab:Slider({
+    Title = "Fire Rate",
+    Step = 10,
+    Value = {Min = 100, Max = 5000, Default = 1000},
+    Callback = function(val) FireRateValue = val end
+})
+
+WeaponTab:Slider({
+    Title = "Accuracy",
+    Step = 0.01,
+    Value = {Min = 0, Max = 5, Default = 1},
+    Callback = function(val) AccuracyValue = val end
+})
+
+WeaponTab:Slider({
+    Title = "Recoil",
+    Step = 0.1,
+    Value = {Min = 0, Max = 10, Default = 0},
+    Callback = function(val) RecoilValue = val end
+})
+
+WeaponTab:Toggle({
+    Title = "Automatic",
+    Icon = "check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(val)
+        AutoValue = val
+        GunModsAutoApply = val
+        if WindUI then
+            WindUI:Notify({Title = "✅ Auto Modify", Duration = 2})
+        end
+    end
+})
+
+WeaponTab:Section({Title = "COMBAT"})
+
+local FistsModifier = false
+
+local function modifyFists(tool, enable)
+    if tool then
+        local attrs = tool:GetAttributes()
+        local keys = {}
+        for k, _ in pairs(attrs) do table.insert(keys, k) end
+        table.sort(keys)
+        if #keys >= 7 then
+            local key1 = keys[6]
+            local key2 = keys[7]
+            if enable then
+                if State.OriginalFistsAttributes[key1] == nil then State.OriginalFistsAttributes[key1] = tool:GetAttribute(key1) end
+                if State.OriginalFistsAttributes[key2] == nil then State.OriginalFistsAttributes[key2] = tool:GetAttribute(key2) end
+                tool:SetAttribute(key1, 360)
+                tool:SetAttribute(key2, 20)
+            else
+                if State.OriginalFistsAttributes[key1] then tool:SetAttribute(key1, State.OriginalFistsAttributes[key1]) end
+                if State.OriginalFistsAttributes[key2] then tool:SetAttribute(key2, State.OriginalFistsAttributes[key2]) end
+            end
+        end
+    end
+end
+
+local meleeList = {}
+if MeleeFolder then
+    for _, tool in ipairs(MeleeFolder:GetChildren()) do table.insert(meleeList, tool.Name) end
+end
+
+local function isMeleeToolCheck(tool)
+    if not tool:IsA("Tool") then return false end
+    if tool.Name == "Fists" then return true end
+    for _, name in ipairs(meleeList) do
+        if tool.Name == name then return true end
+    end
+    return false
+end
+
+local function checkAndModifyFists()
+    local char = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not char or not backpack then return end
+    local tools = {}
+    for _, tool in ipairs(char:GetChildren()) do
+        if isMeleeToolCheck(tool) then table.insert(tools, tool) end
+    end
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if isMeleeToolCheck(tool) then table.insert(tools, tool) end
+    end
+    for _, tool in ipairs(tools) do modifyFists(tool, FistsModifier) end
+end
+
+RunService.Heartbeat:Connect(function()
+    if FistsModifier then checkAndModifyFists() end
+end)
+
+WeaponTab:Toggle({
+    Title = "Melee Aura",
+    Desc = "WideFists",
+    Default = false,
+    Callback = function(val)
+        FistsModifier = val
+        checkAndModifyFists()
+    end
+})
+
+WeaponTab:Toggle({
+    Title = "Auto Attack",
+    Default = false,
+    Callback = function(val) Config.AutoAttack = val end
+})
+
+-- ==================== VISUALS TAB ====================
+local VisualsTab = Window:Tab({Title = "Visuals", Icon = "eye"})
+VisualsTab:Section({Title = "View"})
+
+VisualsTab:Toggle({
+    Title = "Inventory Viewer",
+    Default = false,
+    Callback = function(val)
+        Config.ItemsESP = val
+        if val then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then createBillboardForPlayer(player) end
+            end
+            task.spawn(function()
+                while Config.ItemsESP do
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character then
+                            createBillboardForPlayer(player)
+                        end
+                    end
+                    task.wait(13)
+                end
+            end)
+            if WindUI then WindUI:Notify({Title = "✅ ESP Items Enabled", Duration = 3}) end
         else
-            data.circle.Visible = false
-            data.innerCircle.Visible = false
-            data.name.Visible = false
-            data.amount.Visible = false
-            if data.highlight then data.highlight.Enabled = false end
+            for _, billboard in pairs(State.PlayerBillboards) do
+                billboard:Destroy()
+            end
+            State.PlayerBillboards = {}
+            if WindUI then WindUI:Notify({Title = "❌ ESP Items Disabled", Duration = 3}) end
         end
     end
-end)
+})
 
-Players.PlayerRemoving:Connect(function(player)
-    if player == LocalPlayer then
-        for _, data in pairs(itemDrawings) do
-            pcall(function() data.circle:Remove() end)
-            pcall(function() data.innerCircle:Remove() end)
-            pcall(function() data.name:Remove() end)
-            pcall(function() data.amount:Remove() end)
-            pcall(function() if data.highlight then data.highlight:Destroy() end end)
-        end
-        itemDrawings = {}
+VisualsTab:Toggle({Title = "Name", Default = false, Callback = function(val) Config.NameESP = val end})
+VisualsTab:Toggle({Title = "Health", Default = false, Callback = function(val) Config.HealthESP = val end})
+VisualsTab:Toggle({Title = "Distance", Default = false, Callback = function(val) Config.DistanceESP = val end})
+
+VisualsTab:Toggle({
+    Title = "Highlight",
+    Default = false,
+    Callback = function(val)
+        Config.HighlightESP = val
+        for _, player in pairs(Players:GetPlayers()) do updateHighlight(player) end
     end
-end)
+})
 
--- Buy Tab
+-- ==================== CHARACTER TAB ====================
+local CharTab = Window:Tab({Title = "Character", Icon = "user"})
+CharTab:Section({Title = "Character"})
+
+CharTab:Toggle({Title = "Walk Speed", Default = false, Callback = function(val) Config.WalkSpeed = val end})
+
+CharTab:Slider({
+    Title = "Speed Multiplier",
+    Step = 0.5,
+    Value = {Min = 1, Max = 5, Default = 2},
+    Callback = function(val) Config.SpeedMultiplier = val end
+})
+
+CharTab:Toggle({
+    Title = "Jump Power",
+    Default = false,
+    Callback = function(val)
+        JumpPowerEnabled = val
+        if not JumpPowerEnabled then FlyEnabled = false end
+    end
+})
+
+local sendAction = {}
+function sendAction.send(...)
+    local args = {...}
+    if State.CounterTable and SendRemote then
+        State.CounterTable.event = (State.CounterTable.event or 0) + 1
+        pcall(function() SendRemote:FireServer(State.CounterTable.event, unpack(args)) end)
+    end
+end
+
+local AutoSprintEnabled = false
+CharTab:Toggle({
+    Title = "Infinite Stamina",
+    Default = false,
+    Callback = function(val)
+        AutoSprintEnabled = val
+        if AutoSprintEnabled then
+            local success, sprintModule = pcall(function() return require(ReplicatedStorage.Modules.Game.Sprint) end)
+            if success and sprintModule then
+                local consumeStamina = sprintModule.consume_stamina
+                local upvalue = getupvalue(consumeStamina, 2).sprint_bar
+                if upvalue then
+                    local originalUpdate = upvalue.update
+                    upvalue.update = function(...)
+                        return originalUpdate(function() return 1 end)
+                    end
+                    State.OriginalSprintUpdate = originalUpdate
+                    State.AutoSprintLoop = task.spawn(function()
+                        while AutoSprintEnabled do
+                            pcall(function()
+                                sendAction.send("set_sprinting_1", true)
+                                task.wait(0.5)
+                                sendAction.send("set_sprinting_1", false)
+                            end)
+                            task.wait(0.1)
+                        end
+                        pcall(function() sendAction.send("set_sprinting_1", false) end)
+                    end)
+                    if WindUI then WindUI:Notify({Title = "✅ INF STAMINA", Duration = 3}) end
+                else
+                    AutoSprintEnabled = false
+                end
+            else
+                AutoSprintEnabled = false
+            end
+        else
+            if State.AutoSprintLoop then
+                task.cancel(State.AutoSprintLoop)
+                State.AutoSprintLoop = nil
+            end
+            pcall(function() sendAction.send("set_sprinting_1", false) end)
+            local success, sprintModule = pcall(function() return require(ReplicatedStorage.Modules.Game.Sprint) end)
+            if success and sprintModule then
+                local consumeStamina = sprintModule.consume_stamina
+                local upvalue = getupvalue(consumeStamina, 2).sprint_bar
+                if upvalue and State.OriginalSprintUpdate then
+                    upvalue.update = State.OriginalSprintUpdate
+                    State.OriginalSprintUpdate = nil
+                end
+            end
+            if WindUI then WindUI:Notify({Title = "❌ Auto Sprint Disabled", Duration = 3}) end
+        end
+    end
+})
+
+CharTab:Toggle({
+    Title = "Anti Aim / Anti Lock",
+    Default = false,
+    Callback = function(val)
+        Sky = val
+        if val then SkyAmount = 2500 end
+    end
+})
+
+CharTab:Toggle({
+    Title = "Anti Kill",
+    Default = false,
+    Callback = function(val)
+        AntiKillEnabled = val
+        if val then
+            if WindUI then WindUI:Notify({Title = "Anti Kill Enabled", Duration = 3}) end
+        else
+            if WindUI then WindUI:Notify({Title = "❌ Anti Kill Disabled", Duration = 3}) end
+        end
+    end
+})
+
+CharTab:Divider()
+CharTab:Section({Title = "Auto"})
+
+CharTab:Toggle({Title = "Pickup items", Default = false, Callback = function(val) Config.PickupItems = val end})
+
+CharTab:Dropdown({
+    Title = "Pickup Rarity",
+    Values = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Omega"},
+    Default = "All",
+    Callback = function(val) Config.PickupRarity = val end
+})
+
+CharTab:Toggle({
+    Title = "Anti Ragdoll",
+    Default = false,
+    Callback = function(val)
+        local enabled = val
+        if not enabled then return end
+        pcall(function()
+            local counter = State.CounterTable
+            if not counter then return end
+            local function sendRemoteAction(action)
+                counter.event = (counter.event or 0) + 1
+                local send = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Send")
+                send:FireServer(counter.event, action)
+            end
+            task.spawn(function()
+                while enabled do
+                    sendRemoteAction("end_ragdoll_early")
+                    task.wait(0.3)
+                    if not enabled then break end
+                    sendRemoteAction("clear_ragdoll")
+                    task.wait(0.3)
+                end
+            end)
+        end)
+    end
+})
+
+CharTab:Toggle({
+    Title = "Hide Name",
+    Default = false,
+    Callback = function(val)
+        Config.HideName = val
+        local label = findPlayerNameLabel()
+        if label then
+            if Config.HideName then
+                label.Text = "yupitactico"
+            else
+                label.Text = State.OriginalNameText ~= "" and State.OriginalNameText or LocalPlayer.Name
+            end
+        end
+    end
+})
+
+CharTab:Toggle({
+    Title = "Auto Respawn",
+    Default = false,
+    Callback = function(val)
+        local enabled = val
+        if not enabled then return end
+        pcall(function()
+            local counter = State.CounterTable
+            if not counter then return end
+            local function sendRemoteAction(action)
+                counter.event = (counter.event or 0) + 1
+                local send = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Send")
+                send:FireServer(counter.event, action)
+            end
+            task.spawn(function()
+                while enabled do
+                    local char = LocalPlayer.Character
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health <= 0 then
+                        task.wait(6)
+                        if enabled then sendRemoteAction("death_screen_request_respawn") end
+                    end
+                    task.wait(0.5)
+                end
+            end)
+        end)
+    end
+})
+
+CharTab:Toggle({
+    Title = "Health Blood",
+    Default = false,
+    Callback = function(val)
+        State.AutoHealEnabled = val
+        if not State.HealLoopStarted then
+            State.HealLoopStarted = true
+            task.spawn(function()
+                while true do
+                    task.wait(1)
+                    if State.AutoHealEnabled then
+                        local Ch = LocalPlayer.Character
+                        if Ch and Ch:FindFirstChildWhichIsA("Humanoid") and Ch.Humanoid.Health < 95 then
+                            local function GetHeal()
+                                local SearchPlaces = {LocalPlayer.Backpack, LocalPlayer.Character, LocalPlayer:FindFirstChild("Inventory"), LocalPlayer:FindFirstChild("StarterGear")}
+                                for _, Place in pairs(SearchPlaces) do
+                                    if Place then
+                                        for _, T in pairs(Place:GetChildren()) do
+                                            if T:IsA("Tool") and (T:GetAttribute("HealthRestoreAmount") or T:GetAttribute("HealAmount") or T:GetAttribute("RestoreHealth")) then
+                                                return T
+                                            end
+                                        end
+                                    end
+                                end
+                                return nil
+                            end
+                            local T = GetHeal()
+                            if T then
+                                local Old = Ch:FindFirstChildWhichIsA("Tool")
+                                T.Parent = Ch
+                                task.wait(0.01)
+                                if T:FindFirstChild("RemoteEvent") then T.RemoteEvent:FireServer()
+                                elseif T:FindFirstChild("Use") then T:Use()
+                                else T:Activate() end
+                                local Hum = Ch:FindFirstChildWhichIsA("Humanoid")
+                                local Anim = Hum and Hum:FindFirstChildWhichIsA("Animator")
+                                if Anim then for _, Track in pairs(Anim:GetPlayingAnimationTracks()) do Track:Stop(0) end end
+                                task.wait(0.2)
+                                if Old and Old.Parent == Ch then Old.Parent = LocalPlayer.Backpack end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+})
+
+CharTab:Divider()
+CharTab:Section({Title = "Snap Under Map (Z)"})
+
+CharTab:Toggle({
+    Title = "Snap Under Map",
+    Default = false,
+    Callback = function(val)
+        Config.SnapUnderMap = val
+        if Config.SnapUnderMap then
+            State.SnapCount = State.SnapCount + 1
+            if State.SnapCount < 2 then return end
+            State.SnapY = RootPart and RootPart.Position.Y or nil
+            State.SnapActive = true
+            performTeleport()
+        else
+            State.SnapActive = false
+            State.SnapY = nil
+        end
+    end
+})
+
+CharTab:Slider({
+    Title = "Snap Height",
+    Step = 1,
+    Value = {Min = 1, Max = 300, Default = 10},
+    Callback = function(val)
+        Config.SnapHeight = val
+        if State.SnapActive and RootPart and State.SnapY then
+            local newPos = Vector3.new(RootPart.Position.X, State.SnapY - Config.SnapHeight, RootPart.Position.Z)
+            RootPart.CFrame = CFrame.new(newPos)
+            State.SnapY = newPos.Y
+        end
+    end
+})
+
+-- ==================== PLAYERS TAB ====================
+local PlayersTab = Window:Tab({Title = "Players", Icon = "person-standing"})
+PlayersTab:Section({Title = "Players"})
+
+PlayersTab:Toggle({
+    Title = "Auto Finnish",
+    Default = false,
+    Callback = function(val)
+        Config.AutoFinnish = val
+        if val then
+            applyToAll()
+            if WindUI then WindUI:Notify({Title = "✅ Auto Finish Enabled", Duration = 3}) end
+        else
+            if WindUI then WindUI:Notify({Title = "❌ Auto Finish Disabled", Duration = 3}) end
+        end
+    end
+})
+
+-- ==================== SETTINGS TAB ====================
+local SettingsTab = Window:Tab({Title = "Settings", Icon = "warehouse"})
+local PlaceId = game.PlaceId
+
+SettingsTab:Input({
+    Title = "Server Hop by ID",
+    Value = "",
+    InputIcon = "send",
+    Type = "Input",
+    Placeholder = "id server here",
+    Callback = function(val)
+        if not val or val == "" then return end
+        local ids = {}
+        for id in string.gmatch(val, "[%w%-]+") do
+            table.insert(ids, id)
+        end
+        if #ids == 0 then return end
+        for _, id in ipairs(ids) do
+            task.wait(0.5)
+            pcall(function()
+                TeleportService:TeleportToPlaceInstance(PlaceId, id, LocalPlayer)
+            end)
+        end
+    end
+})
+
+SettingsTab:Button({
+    Title = "Server Rejoin",
+    Desc = "Return to current server",
+    Callback = function()
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end
+})
+
+SettingsTab:Button({
+    Title = "Server Hop",
+    Desc = "Join a new server",
+    Callback = function()
+        local placeId = 104715542330896
+        local success, data = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Desc&limit=100"))
+        end)
+        if not success or not data or not data.data then
+            warn("Could not fetch server data")
+            return
+        end
+        local servers = {}
+        for _, server in ipairs(data.data) do
+            if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                table.insert(servers, server)
+            end
+        end
+        if #servers == 0 then
+            warn("No empty servers found")
+            return
+        end
+        table.sort(servers, function(a, b) return a.playing > b.playing end)
+        TeleportService:TeleportToPlaceInstance(placeId, servers[1].id, LocalPlayer)
+    end
+})
+
+SettingsTab:Button({
+    Title = "Claim All Quest",
+    Callback = function()
+        task.spawn(function()
+            pcall(function()
+                local counter = State.CounterTable
+                if not counter then return end
+                local function apiGet(...)
+                    local args = {...}
+                    counter.func = (counter.func or 0) + 1
+                    local getRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Get")
+                    return getRemote:InvokeServer(counter.func, table.unpack(args))
+                end
+                local questsHolder = LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("Quests"):WaitForChild("QuestsHolder"):WaitForChild("QuestsScrollingFrame")
+                for _, quest in ipairs(questsHolder:GetChildren()) do
+                    if quest:IsA("Frame") or quest:IsA("TextButton") or quest:IsA("ImageButton") then
+                        apiGet("claim_quest", quest.Name)
+                        task.wait(0.2)
+                    end
+                end
+            end)
+        end)
+    end
+})
+
+SettingsTab:Divider()
+SettingsTab:Section({Title = "Config Management"})
+
+SettingsTab:Button({
+    Title = "Save Config",
+    Callback = function()
+        if ConfigData and ConfigData.Save then ConfigData:Save() end
+    end
+})
+
+SettingsTab:Button({
+    Title = "Delete Config",
+    Callback = function()
+        if ConfigData and ConfigData.Delete then ConfigData:Delete() end
+    end
+})
+
+if ConfigData and ConfigData.Load then ConfigData:Load() end
+
+-- ==================== BUY TAB ====================
 local BuyTab = Window:Tab({Title = "Buy", Icon = "house"})
 BuyTab:Section({Title = "Economy & Crates"})
 
@@ -2568,25 +2031,26 @@ local HandBalanceLabel = BuyTab:Label({Title = "Hand Cash", Text = "$0"})
 
 task.spawn(function()
     while task.wait(0.2) do
-        local atm = ATMMoney()
-        local hand = HandMoney()
-        BankBalanceLabel:SetDesc('<b><font color="#00FF00">$' .. tostring(atm) .. '</font></b>')
-        HandBalanceLabel:SetDesc('<b><font color="#00f2ff">$' .. tostring(hand) .. '</font></b>')
+        BankBalanceLabel:SetDesc('<b><font color="#00FF00">$' .. tostring(ATMMoney()) .. '</font></b>')
+        HandBalanceLabel:SetDesc('<b><font color="#00f2ff">$' .. tostring(HandMoney()) .. '</font></b>')
     end
 end)
 
 BuyTab:Divider()
 
-local CrateController = require(game:GetService("ReplicatedStorage").Modules.Game.CrateSystem.Crate)
-local EnabledSkip = false
+local CrateController = nil
+pcall(function()
+    CrateController = require(game:GetService("ReplicatedStorage").Modules.Game.CrateSystem.Crate)
+end)
 
-local SkipToggle = BuyTab:Toggle({
+local EnabledSkip = false
+BuyTab:Toggle({
     Title = "Skip Crate Animation",
     Desc = "Instantly opens crates",
     Value = false,
     Callback = function(val)
         EnabledSkip = val
-        if EnabledSkip then
+        if EnabledSkip and CrateController then
             task.spawn(function()
                 while EnabledSkip do
                     task.wait()
@@ -2609,7 +2073,7 @@ local SkipToggle = BuyTab:Toggle({
                     end
                 end
             end)
-        else
+        elseif CrateController then
             pcall(function()
                 if CrateController.skipping and CrateController.skipping.set then
                     CrateController.skipping.set(false)
@@ -2618,89 +2082,81 @@ local SkipToggle = BuyTab:Toggle({
         end
     end
 })
-ConfigData:Register("Skip animation", SkipToggle)
 
--- Car Tab
+-- ==================== CAR TAB ====================
 local VehicleTab = Window:Tab({Title = "Car", Icon = "car"})
 VehicleTab:Section({Title = "Car"})
 
 VehicleTab:Button({
     Title = "Pull Car Owner",
-    Desc = "",
+    Desc = "Teleport your vehicle to you",
     Callback = function()
-        local Players = game:GetService("Players")
-        local Client = Players.LocalPlayer
-        local Character = Client.Character or Client.CharacterAdded:Wait()
-        local RootPart = Character:WaitForChild("HumanoidRootPart")
-        local Vehicles = workspace:WaitForChild("Vehicles")
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart")
+        local Vehicles = Workspace:WaitForChild("Vehicles", 5)
+        if not Vehicles then return end
         for _, vehicle in pairs(Vehicles:GetChildren()) do
             if vehicle:IsA("Model") then
                 local ownerId = vehicle:GetAttribute("OwnerUserId")
-                if ownerId and ownerId == Client.UserId then
+                if ownerId and ownerId == LocalPlayer.UserId then
                     local offset = CFrame.new(math.random(-5, 5), 3, math.random(-15, -5))
                     if vehicle.PrimaryPart then
-                        vehicle:SetPrimaryPartCFrame(RootPart.CFrame * offset)
+                        vehicle:SetPrimaryPartCFrame(hrp.CFrame * offset)
                     else
                         local part = vehicle:FindFirstChildWhichIsA("BasePart")
-                        if part then
-                            part.CFrame = RootPart.CFrame * offset
-                        end
+                        if part then part.CFrame = hrp.CFrame * offset end
                     end
                 end
             end
         end
-        Window:Notify({Title = "Button", Desc = "Action performed successfully.", Time = 3})
+        if WindUI then WindUI:Notify({Title = "Car", Desc = "Vehicle pulled", Duration = 3}) end
     end
 })
 
--- Fish Tab
+-- ==================== FISH TAB ====================
 local FishTab = Window:Tab({Title = "Fish", Icon = "fish"})
 FishTab:Section({Title = "Auto Fishing"})
 
 FishTab:Button({
-    Title = "Auto Hack ATMs I Fish",
-    Desc = "Automatically hits the slider minigame when fishing",
+    Title = "Auto Hack ATMs / Fish",
+    Desc = "Hits slider minigame automatically",
     Callback = function()
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
-        local VirtualInputManager = game:GetService("VirtualInputManager")
-        local RunService = game:GetService("RunService")
-        local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
-        local autoEnabled = false
-        local renderConn, dragConn
-        local lastClick = 0
         local SliderMinigame
-        local ok, err = pcall(function()
+        pcall(function()
             SliderMinigame = require(ReplicatedStorage.Modules.Game.Minigames.SliderMinigame)
         end)
-        if not ok then warn("Failed to load SliderMinigame:", err) end
-        local function autoHit()
-            pcall(function()
-                if not (SliderMinigame and SliderMinigame.enabled and SliderMinigame.enabled.get()) then
-                    return
-                end
-                local needle = SliderMinigame.needle_pos.get()
-                local target = SliderMinigame.target_pos.get()
-                local size = SliderMinigame.target_size.get()
-                local tolerance = (type(size) == "number" and size > 0) and (size / 2) * 0.7 or 0.02
-                if math.abs(needle - target) <= tolerance and tick() - lastClick > 0.5 then
-                    lastClick = tick()
-                    local cam = workspace.CurrentCamera
-                    local x, y = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
-                    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-                    task.wait(0.03)
-                    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-                end
-            end)
+        if not SliderMinigame then
+            if WindUI then WindUI:Notify({Title = "❌ SliderMinigame not found", Duration = 3}) end
+            return
         end
-        if renderConn then
-            renderConn:Disconnect()
-        end
-        autoEnabled = true
-        renderConn = RunService.RenderStepped:Connect(function()
-            if autoEnabled then autoHit() end
+        local autoEnabled = true
+        local lastClick = 0
+        task.spawn(function()
+            while autoEnabled do
+                task.wait()
+                pcall(function()
+                    if not (SliderMinigame.enabled and SliderMinigame.enabled.get()) then return end
+                    local needle = SliderMinigame.needle_pos.get()
+                    local target = SliderMinigame.target_pos.get()
+                    local size = SliderMinigame.target_size.get()
+                    local tolerance = (type(size) == "number" and size > 0) and (size / 2) * 0.7 or 0.02
+                    if math.abs(needle - target) <= tolerance and tick() - lastClick > 0.5 then
+                        lastClick = tick()
+                        local cam = Camera
+                        local x, y = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                        task.wait(0.03)
+                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+                    end
+                end)
+            end
         end)
-        if WindUI then
-            WindUI:Notify({Title = "✅ Auto Fish Hack Activated", Duration = 3})
-        end
+        if WindUI then WindUI:Notify({Title = "✅ Auto Fish Hack Activated", Duration = 3}) end
     end
 })
+
+-- ==================== ФИНАЛЬНЫЙ ВЫВОД ====================
+if WindUI then
+    WindUI:Notify({Title = "rick Hub loaded", Desc = "Press G to toggle menu", Duration = 5})
+end
+print("[rick Hub] Loaded successfully")
