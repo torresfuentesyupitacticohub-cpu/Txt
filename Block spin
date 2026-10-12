@@ -1,13 +1,16 @@
--- Проблема: скрипт не создаёт UI элементы в меню.
--- Причина 1: WindUI не загрузился (loadstring заблокирован executor'ом).
--- Причина 2: Window создан как заглушка (dummy) без методов Tab/Section/Toggle.
--- Причина 3: Ошибка в CreateWindow из-за неверных параметров (Theme, KeyCode).
--- Причина 4: Отсутствует вызов Window:Tab() для создания вкладок — UI пустой.
--- Причина 5: Callback функции ссылаются на несуществующие переменные (enabled, highlightEnabled, TracerESP).
+-- ============================================================
+-- rick Hub | spin - ПОЛНЫЙ ФИНАЛЬНЫЙ СКРИПТ
+-- Все исправления:
+--   • Silent Aim Random реально чередует Head / Torso (HRP)
+--   • Anti Kill переписан через sentinel-часть
+--   • Silent Aim tracer скрыт, пока нет цели в FOV
+--   • Pickup Items: множественный выбор редкостей (без "All")
+--   • Auto Hack ATMs I Fish перенесён в Combat tab
+--   • Snap Under Map: выбор направления Down/Up
+--   • Auto Health Blood срабатывает при HP <= 75
+--   • Config Management: рабочее сохранение/загрузка через writefile/readfile
+-- ============================================================
 
--- Решение: полный исправленный код с рабочим UI.
-
--- ==================== ИНИЦИАЛИЗАЦИЯ ====================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -27,7 +30,7 @@ local Humanoid = Character:WaitForChild("Humanoid")
 local RootPart = Character:WaitForChild("HumanoidRootPart")
 local Camera = Workspace.CurrentCamera
 
--- ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
+-- ==================== CONFIG ====================
 local Config = {
     SilentAim = false,
     SilentAimAttach = false,
@@ -47,20 +50,21 @@ local Config = {
     AntiLock = false,
     AntiKill = false,
     PickupItems = false,
-    PickupRarity = "All",
+    PickupRarities = {Common = false, Uncommon = false, Rare = false, Epic = false, Legendary = false, Omega = false},
     AntiRagdoll = false,
     HideName = false,
     AutoRespawn = false,
     HealthBlood = false,
     SnapUnderMap = false,
     SnapHeight = 10,
+    SnapDirection = "Down",
     AutoFinnish = false,
-    SkipCrate = false
+    SkipCrate = false,
+    AutoHackATMs = false
 }
 
 local State = {
     AutoAttackRunning = false,
-    JumpConnection = nil,
     WalkSpeedConnection = nil,
     LockConnection = nil,
     SnapActive = false,
@@ -83,7 +87,7 @@ local State = {
     OriginalFistsAttributes = {},
     CounterTable = nil,
     TracerESP = nil,
-    DroppedItems = Workspace:WaitForChild("DroppedItems", 5),
+    TracerLine = nil,
     ItemDrawings = {},
     AutoSprintLoop = nil,
     OriginalSprintUpdate = nil,
@@ -92,8 +96,13 @@ local State = {
     HideNameEnabled = false,
     PlayerNameLabel = nil,
     OriginalNameText = "",
-    CurrentTracerTarget = nil,
-    FullbrightEnabled = false
+    HealThreshold = 75,
+    RandomAimPart = "Head",
+    LastRandomSwitch = 0,
+    AntiKillActive = false,
+    AntiKillPosition = nil,
+    AntiKillConnection = nil,
+    AntiKillSentinel = nil
 }
 
 local RarityColors = {
@@ -105,7 +114,7 @@ local RarityColors = {
     Omega = Color3.fromRGB(255, 20, 51)
 }
 
--- ==================== ПОИСК COUNTER TABLE ====================
+-- ==================== COUNTER TABLE ====================
 pcall(function()
     for _, v in ipairs(getgc(true)) do
         if typeof(v) == "table" and rawget(v, "event") and rawget(v, "func") then
@@ -115,13 +124,10 @@ pcall(function()
     end
 end)
 
--- ==================== ЗАГРУЗКА WINDUI ====================
+-- ==================== WINDUI ====================
 local WindUI
-local WindUILoaded = false
-
 local success, err = pcall(function()
     WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-    WindUILoaded = true
 end)
 
 if not success or not WindUI then
@@ -129,7 +135,6 @@ if not success or not WindUI then
     WindUI = nil
 end
 
--- ==================== СОЗДАНИЕ ОКНА ====================
 local Window
 if WindUI then
     local winSuccess, winErr = pcall(function()
@@ -145,7 +150,6 @@ if WindUI then
             KeyCode = Enum.KeyCode.L
         })
     end)
-    
     if not winSuccess or not Window then
         warn("[rick Hub] Window creation failed:", winErr)
         Window = nil
@@ -173,9 +177,8 @@ if WindUI then
     end
 end
 
--- ==================== ЗАГЛУШКА ЕСЛИ WINDUI НЕ ЗАГРУЗИЛСЯ ====================
 if not Window then
-    warn("[rick Hub] Using dummy UI - WindUI not available")
+    warn("[rick Hub] Using dummy UI")
     local dummyMethods = {
         Section = function() return dummyMethods end,
         Toggle = function() return dummyMethods end,
@@ -191,36 +194,102 @@ if not Window then
         Tab = function() return dummyMethods end,
         Notify = function() end,
         Toggle = function() end,
-        SetVisible = function() end,
-        ConfigManager = {
-            CreateConfig = function() return {
-                Register = function() end,
-                Save = function() end,
-                Delete = function() end,
-                Load = function() end
-            } end
-        }
+        SetVisible = function() end
     }
     return
 end
 
--- ==================== CONFIG MANAGER ====================
-local ConfigManager = Window.ConfigManager
-local ConfigData
-if ConfigManager then
-    ConfigData = ConfigManager:CreateConfig("CathubConfig")
+-- ==================== CONFIG MANAGEMENT ====================
+local CONFIG_FOLDER = "rickHub"
+local CONFIG_FILE = CONFIG_FOLDER .. "/config.json"
+
+pcall(function()
+    if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
+end)
+
+_G.RegisteredElements = _G.RegisteredElements or {}
+
+function RegisterElement(key, element, elementType, callback)
+    _G.RegisteredElements[key] = {element = element, type = elementType, callback = callback}
 end
 
-local function RegisterConfig(name, element)
-    if ConfigData and ConfigData.Register then
-        pcall(function() ConfigData:Register(name, element) end)
+local function CollectValues()
+    local data = {}
+    for key, entry in pairs(_G.RegisteredElements) do
+        local el = entry.element
+        if el then
+            local ok, val = pcall(function() return el.Value end)
+            if ok and val ~= nil then
+                data[key] = {type = entry.type, value = val}
+            end
+        end
+    end
+    return data
+end
+
+local function ApplyValues(data)
+    if not data then return end
+    for key, entry in pairs(data) do
+        local reg = _G.RegisteredElements[key]
+        if reg and reg.element then
+            local el = reg.element
+            local val = entry.value
+            pcall(function()
+                if el.Set then el:Set(val)
+                elseif el.Value ~= nil then el.Value = val end
+            end)
+            if reg.callback then pcall(reg.callback, val) end
+        end
     end
 end
 
--- ==================== REMOTES И МОДУЛИ ====================
+local function SaveConfig()
+    local data = CollectValues()
+    local json = HttpService:JSONEncode(data)
+    local ok, err = pcall(function() writefile(CONFIG_FILE, json) end)
+    if ok then
+        if WindUI then WindUI:Notify({Title = "✅ Config Saved", Desc = CONFIG_FILE, Duration = 3}) end
+    else
+        warn("[Config] Save failed:", err)
+        if WindUI then WindUI:Notify({Title = "❌ Save Failed", Desc = tostring(err), Duration = 3}) end
+    end
+end
+
+local function LoadConfig()
+    local ok, content = pcall(function() return readfile(CONFIG_FILE) end)
+    if not ok or not content then
+        if WindUI then WindUI:Notify({Title = "⚠️ No Config Found", Duration = 3}) end
+        return
+    end
+    local decodeOk, data = pcall(function() return HttpService:JSONDecode(content) end)
+    if not decodeOk or not data then
+        if WindUI then WindUI:Notify({Title = "❌ Load Failed", Desc = "Invalid JSON", Duration = 3}) end
+        return
+    end
+    ApplyValues(data)
+    if WindUI then WindUI:Notify({Title = "✅ Config Loaded", Duration = 3}) end
+end
+
+local function DeleteConfig()
+    local ok, err = pcall(function() delfile(CONFIG_FILE) end)
+    if ok then
+        if WindUI then WindUI:Notify({Title = "✅ Config Deleted", Duration = 3}) end
+    else
+        warn("[Config] Delete failed:", err)
+    end
+end
+
+local AutoSaveEnabled = false
+task.spawn(function()
+    while true do
+        task.wait(60)
+        if AutoSaveEnabled then pcall(SaveConfig) end
+    end
+end)
+
+-- ==================== REMOTES ====================
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
 local SendRemote = Remotes and Remotes:WaitForChild("Send", 5)
-
 local Items = ReplicatedStorage:WaitForChild("Items", 5)
 local MeleeFolder = Items and Items:WaitForChild("melee", 5)
 local GunFolder = Items and Items:WaitForChild("gun", 5)
@@ -233,7 +302,7 @@ pcall(function() EmotesList = require(ReplicatedStorage.Modules.Game.Emotes.Emot
 pcall(function() CoreUI = require(ReplicatedStorage.Modules.Core.UI) end)
 pcall(function() CharModule = require(ReplicatedStorage.Modules.Core.Char) end)
 
--- ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+-- ==================== HELPERS ====================
 local function getRainbowColor(offset)
     local hue = (tick() * 0.8 + offset) % 1
     return Color3.fromHSV(hue, 1, 1)
@@ -326,14 +395,6 @@ local function GetSmoothedPing()
     return (sum / #State.PingHistory) / 1000
 end
 
-local function predictPosition(part, hrp)
-    if not part then return Vector3.zero end
-    local ping = GetSmoothedPing()
-    if ping > 1 then ping = ping + 0.15 end
-    local velocity = (hrp and hrp.AssemblyLinearVelocity) or Vector3.zero
-    return part.Position + (velocity * ping * 1)
-end
-
 local function isBehindWall(fromPos, toPos)
     local direction = toPos - fromPos
     if direction.Magnitude < 1 then return false end
@@ -362,7 +423,6 @@ local function getHRP()
     return char:FindFirstChild("HumanoidRootPart")
 end
 
--- ==================== SETUP CHARACTER ====================
 local function setupCharacter(char)
     Character = char
     Humanoid = char:WaitForChild("Humanoid")
@@ -379,11 +439,12 @@ local function setupCharacter(char)
     end)
 end
 
--- ==================== TELEPORT ====================
+-- ==================== TELEPORT (SNAP) ====================
 local function performTeleport()
     if not RootPart then return end
     local startPos = RootPart.Position
-    local endPos = Vector3.new(startPos.X, startPos.Y - Config.SnapHeight, startPos.Z)
+    local direction = (Config.SnapDirection == "Up") and 1 or -1
+    local endPos = Vector3.new(startPos.X, startPos.Y + (direction * Config.SnapHeight), startPos.Z)
     RootPart.CFrame = CFrame.new(endPos)
     State.SnapY = endPos.Y
     local sound = Instance.new("Sound")
@@ -579,46 +640,6 @@ local function applyToAll()
     end
 end
 
-local function setupFastFinishForPlayer(player)
-    if player ~= LocalPlayer then
-        player.CharacterAdded:Connect(function(char)
-            char.DescendantAdded:Connect(function(desc)
-                if Config.AutoFinnish and desc.Name == "FinishPrompt" and desc:IsA("ProximityPrompt") and desc.Parent and desc.Parent.Name == "HumanoidRootPart" then
-                    setFinishPrompt(desc)
-                end
-            end)
-        end)
-    end
-end
-
--- ==================== AUTO SKIP CRATE ====================
-local function TrySkipCrate()
-    local success, crateModule = pcall(function()
-        return require(ReplicatedStorage.Modules.Game.CrateSystem.Crate)
-    end)
-    if not (success and crateModule) then return end
-    task.spawn(function()
-        local spinning = crateModule.spinning
-        if not spinning then return end
-        local elapsed = 0
-        while not spinning.get() do
-            if elapsed > 3 then break end
-            task.wait(0.05)
-            elapsed = elapsed + 0.05
-        end
-        if spinning.get() then
-            pcall(function() crateModule.skip_spin() end)
-        end
-    end)
-end
-
-local function SetupAutoSkip()
-    if not SendRemote then return end
-    SendRemote.OnClientEvent:Connect(function(...)
-        if Config.SkipCrate then TrySkipCrate() end
-    end)
-end
-
 -- ==================== ESP ====================
 local function createESP(player)
     if State.ESPCache[player] then return end
@@ -724,7 +745,6 @@ local function loadESP()
     end)
 end
 
--- ==================== HIGHLIGHT ====================
 local function updateHighlight(player)
     if player == LocalPlayer then return end
     if not player.Character then return end
@@ -774,7 +794,7 @@ else
     FOVCircle.Parent = screenGui
 end
 
--- ==================== VELOCITY TRACKING ====================
+-- ==================== VELOCITY ====================
 RunService.Heartbeat:Connect(function()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
@@ -823,12 +843,11 @@ local function predictPositionForPlayer(part, hrp)
     local player = parent and Players:GetPlayerFromCharacter(parent)
     if not player then return part.Position end
     local velocity = calculateVelocity(player) or Vector3.zero
-    local ping = (getPing and getPing()) or 0.1
+    local ping = getPing()
     if ping < 0 then ping = 0.1 end
     return part.Position + (velocity * ping * State.VelocitySmoothing)
 end
 
--- ==================== SHOTGUN CHECK ====================
 local function isShotgun()
     if not Character then return false end
     for _, tool in ipairs(Character:GetChildren()) do
@@ -840,6 +859,15 @@ local function isShotgun()
     return false
 end
 
+-- ==================== RANDOM AIM PART ====================
+local function pickRandomAimPart()
+    if tick() - State.LastRandomSwitch > 0.15 then
+        State.LastRandomSwitch = tick()
+        State.RandomAimPart = (math.random(1, 2) == 1) and "Head" or "Torso"
+    end
+    return State.RandomAimPart
+end
+
 -- ==================== SILENT AIM HOOK ====================
 if SendRemote and SendRemote.FireServer then
     local originalFireServer
@@ -848,15 +876,27 @@ if SendRemote and SendRemote.FireServer then
             if self ~= SendRemote then return originalFireServer(self, ...) end
             local args = {...}
             if Config.SilentAim and args[2] == "shoot_gun" and State.CurrentTarget then
-                local head = State.CurrentTarget.Character and State.CurrentTarget.Character:FindFirstChild("Head")
-                local hrp = State.CurrentTarget.Character and State.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
-                local hum = State.CurrentTarget.Character and State.CurrentTarget.Character:FindFirstChild("Humanoid")
+                local char = State.CurrentTarget.Character
+                local head = char and char:FindFirstChild("Head")
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChild("Humanoid")
                 if head and hrp and hum then
-                    local targetPart = head
-                    if Config.SelectedAimPart == "HumanoidRootPart" then
+                    local targetPart, targetInstance
+                    if Config.SelectedAimPart == "Random" then
+                        local choice = pickRandomAimPart()
+                        if choice == "Torso" then
+                            targetPart = hrp
+                            targetInstance = hrp
+                        else
+                            targetPart = head
+                            targetInstance = head
+                        end
+                    elseif Config.SelectedAimPart == "HumanoidRootPart" then
                         targetPart = hrp
-                    elseif Config.SelectedAimPart == "Random" then
-                        targetPart = math.random(1, 2) == 1 and head or hrp
+                        targetInstance = hrp
+                    else
+                        targetPart = head
+                        targetInstance = head
                     end
                     local predictedPos = predictPositionForPlayer(targetPart, hrp)
                     local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
@@ -866,7 +906,7 @@ if SendRemote and SendRemote.FireServer then
                         local hits = {}
                         for i = 1, 8 do
                             local spread = Vector3.new(math.random(-2, 2) * 0.03, math.random(-2, 2) * 0.03, math.random(-2, 2) * 0.03)
-                            table.insert(hits, {[1] = {Instance = head, Normal = Vector3.new(0, 1, 0), Position = predictedPos + spread}})
+                            table.insert(hits, {[1] = {Instance = targetInstance, Normal = Vector3.new(0, 1, 0), Position = predictedPos + spread}})
                         end
                         args[5] = hits
                     else
@@ -876,24 +916,281 @@ if SendRemote and SendRemote.FireServer then
                         else
                             args[4] = CFrame.new(myPos, predictedPos)
                         end
-                        args[5] = {[1] = {[1] = {Instance = head, Normal = Vector3.new(0, 1, 0), Position = predictedPos}}}
+                        args[5] = {[1] = {[1] = {Instance = targetInstance, Normal = Vector3.new(0, 1, 0), Position = predictedPos}}}
                     end
-                    local tracerPart = Instance.new("Part")
-                    tracerPart.Anchored = true
-                    tracerPart.CanCollide = false
-                    tracerPart.Size = Vector3.new(0.08, 0.08, (predictedPos - myPos).Magnitude)
-                    tracerPart.CFrame = CFrame.new(myPos, predictedPos) * CFrame.new(0, 0, -tracerPart.Size.Z / 2)
-                    tracerPart.Material = Enum.Material.Neon
-                    tracerPart.Transparency = 0.35
-                    tracerPart.Color = Color3.fromRGB(255, 0, 0)
-                    tracerPart.Parent = Workspace
-                    Debris:AddItem(tracerPart, 4)
                 end
             end
             return originalFireServer(self, unpack(args))
         end)
     end)
 end
+
+-- ==================== TRACER ====================
+local function getOrCreateTracer()
+    if not State.TracerLine then
+        State.TracerLine = Drawing.new("Line")
+        State.TracerLine.Thickness = 1.3
+        State.TracerLine.Color = Color3.fromRGB(255, 50, 50)
+        State.TracerLine.Transparency = 1
+        State.TracerLine.Visible = false
+    end
+    return State.TracerLine
+end
+
+local function createTracerBox()
+    if not State.TracerESP then
+        State.TracerESP = {}
+        for i = 1, 4 do
+            State.TracerESP[i] = Drawing.new("Line")
+            State.TracerESP[i].Color = Color3.fromRGB(255, 255, 255)
+            State.TracerESP[i].Thickness = 1.2
+            State.TracerESP[i].Visible = false
+        end
+    end
+    return State.TracerESP
+end
+
+local function hideTracer()
+    local tracer = getOrCreateTracer()
+    tracer.Visible = false
+    if State.TracerESP then
+        for i = 1, 4 do
+            State.TracerESP[i].Visible = false
+        end
+    end
+end
+
+local function updateTracer(target)
+    if not target or not target.Character then
+        hideTracer()
+        return
+    end
+    local char = target.Character
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum or hum.Health <= 0 then
+        hideTracer()
+        return
+    end
+    local aimPart = Config.SelectedAimPart or "Head"
+    local targetPart
+    if aimPart == "Random" then
+        if State.RandomAimPart == "Torso" then
+            targetPart = char:FindFirstChild("HumanoidRootPart")
+        else
+            targetPart = char:FindFirstChild("Head")
+        end
+    elseif aimPart == "HumanoidRootPart" then
+        targetPart = char:FindFirstChild("HumanoidRootPart")
+    else
+        targetPart = char:FindFirstChild("Head")
+    end
+    if not targetPart then
+        hideTracer()
+        return
+    end
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local targetPos = targetPart.Position
+    State.AimPartTarget = State.AimPartTarget:Lerp(targetPos, State.VelocitySmoothFactor)
+    local smoothTarget = State.AimPartTarget
+    local screenPos, onScreen = Camera:WorldToViewportPoint(smoothTarget)
+    if not onScreen then
+        hideTracer()
+        return
+    end
+    local tracer = getOrCreateTracer()
+    tracer.Visible = true
+    tracer.From = screenCenter
+    tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+    local box = createTracerBox()
+    local topScreen = Camera:WorldToViewportPoint(targetPart.Position + Vector3.new(0, 0.5, 0))
+    local bottomScreen = Camera:WorldToViewportPoint(targetPart.Position - Vector3.new(0, 0.5, 0))
+    local center = Vector2.new(screenPos.X, screenPos.Y)
+    local halfHeight = (topScreen - bottomScreen).Magnitude / 2
+    local halfWidth = halfHeight
+    local minSize, maxSize = 8, 25
+    halfWidth = math.clamp(halfWidth, minSize, maxSize)
+    halfHeight = math.clamp(halfHeight, minSize, maxSize)
+    local top = Vector2.new(center.X, center.Y - halfHeight)
+    local bottom = Vector2.new(center.X, center.Y + halfHeight)
+    local left = Vector2.new(center.X - halfWidth, center.Y)
+    local right = Vector2.new(center.X + halfWidth, center.Y)
+    box[1].From, box[1].To = top, right
+    box[2].From, box[2].To = right, bottom
+    box[3].From, box[3].To = bottom, left
+    box[4].From, box[4].To = left, top
+    for i = 1, 4 do box[i].Visible = true end
+end
+
+-- ==================== ANTI KILL ====================
+local function cleanupAntiKill()
+    State.AntiKillActive = false
+    State.AntiKillPosition = nil
+    if State.AntiKillConnection then
+        pcall(function() State.AntiKillConnection:Disconnect() end)
+        State.AntiKillConnection = nil
+    end
+    if State.AntiKillSentinel then
+        pcall(function() State.AntiKillSentinel:Destroy() end)
+        State.AntiKillSentinel = nil
+    end
+end
+
+local function startAntiKill()
+    if State.AntiKillActive then return end
+    local hrp = getHRP()
+    if not hrp then
+        task.wait(0.1)
+        hrp = getHRP()
+        if not hrp then return end
+    end
+    State.AntiKillActive = true
+    local originPos = hrp.Position
+    local sentinelPos = Vector3.new(originPos.X, originPos.Y - 100, originPos.Z)
+    State.AntiKillPosition = sentinelPos
+    if State.AntiKillSentinel then
+        pcall(function() State.AntiKillSentinel:Destroy() end)
+    end
+    State.AntiKillSentinel = Instance.new("Part")
+    State.AntiKillSentinel.Name = "__AntiKillAnchor"
+    State.AntiKillSentinel.Anchored = true
+    State.AntiKillSentinel.CanCollide = false
+    State.AntiKillSentinel.Transparency = 1
+    State.AntiKillSentinel.Size = Vector3.new(1, 1, 1)
+    State.AntiKillSentinel.CFrame = CFrame.new(sentinelPos)
+    State.AntiKillSentinel.Parent = Workspace
+    if State.AntiKillConnection then
+        pcall(function() State.AntiKillConnection:Disconnect() end)
+    end
+    State.AntiKillConnection = RunService.Heartbeat:Connect(function()
+        if not State.AntiKillActive then return end
+        if not Config.AntiKill then
+            cleanupAntiKill()
+            return
+        end
+        local currentHrp = getHRP()
+        if currentHrp and State.AntiKillPosition then
+            currentHrp.CFrame = CFrame.new(State.AntiKillPosition)
+            currentHrp.Velocity = Vector3.new(0, 0, 0)
+        end
+    end)
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if not Config.AntiKill then
+            if State.AntiKillActive then cleanupAntiKill() end
+        else
+            local downed = isDowned()
+            if downed and not State.AntiKillActive then
+                startAntiKill()
+            elseif not downed and State.AntiKillActive then
+                cleanupAntiKill()
+                local hum = CharModule and CharModule.get_hum()
+                if hum and hum.Health > 0 then
+                    pcall(function() hum.Health = 0 end)
+                end
+            end
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    cleanupAntiKill()
+end)
+
+-- ==================== AUTO HACK ATMs / FISH ====================
+local SliderMinigameRef
+pcall(function()
+    SliderMinigameRef = require(ReplicatedStorage.Modules.Game.Minigames.SliderMinigame)
+end)
+
+local autoHackRunning = false
+local function startAutoHack()
+    if autoHackRunning then return end
+    autoHackRunning = true
+    task.spawn(function()
+        while autoHackRunning do
+            task.wait()
+            if Config.AutoHackATMs and SliderMinigameRef then
+                pcall(function()
+                    if not (SliderMinigameRef.enabled and SliderMinigameRef.enabled.get()) then return end
+                    local needle = SliderMinigameRef.needle_pos.get()
+                    local target = SliderMinigameRef.target_pos.get()
+                    local size = SliderMinigameRef.target_size.get()
+                    local tolerance = (type(size) == "number" and size > 0) and (size / 2) * 0.7 or 0.02
+                    if math.abs(needle - target) <= tolerance then
+                        local cam = Camera
+                        local x, y = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                        task.wait(0.03)
+                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- ==================== AUTO HEALTH BLOOD (HP <= 75) ====================
+local function findHealTool()
+    local places = {LocalPlayer.Backpack, LocalPlayer.Character, LocalPlayer:FindFirstChild("Inventory"), LocalPlayer:FindFirstChild("StarterGear")}
+    for _, place in pairs(places) do
+        if place then
+            for _, tool in pairs(place:GetChildren()) do
+                if tool:IsA("Tool") and (tool:GetAttribute("HealthRestoreAmount") or tool:GetAttribute("HealAmount") or tool:GetAttribute("RestoreHealth")) then
+                    return tool
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function useHealTool(tool)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local oldTool = char:FindFirstChildWhichIsA("Tool")
+    tool.Parent = char
+    task.wait(0.01)
+    if tool:FindFirstChild("RemoteEvent") then
+        tool.RemoteEvent:FireServer()
+    elseif tool:FindFirstChild("Use") then
+        tool:Use()
+    else
+        tool:Activate()
+    end
+    local hum = char:FindFirstChildWhichIsA("Humanoid")
+    local anim = hum and hum:FindFirstChildWhichIsA("Animator")
+    if anim then
+        for _, track in pairs(anim:GetPlayingAnimationTracks()) do
+            track:Stop(0)
+        end
+    end
+    task.wait(0.2)
+    if oldTool and oldTool.Parent == char then
+        oldTool.Parent = LocalPlayer.Backpack
+    end
+end
+
+task.spawn(function()
+    if State.HealLoopStarted then return end
+    State.HealLoopStarted = true
+    while true do
+        task.wait(0.5)
+        if Config.HealthBlood then
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+            if hum and hum.Health > 0 and hum.Health <= State.HealThreshold then
+                local tool = findHealTool()
+                if tool then
+                    pcall(useHealTool, tool)
+                end
+            end
+        end
+    end
+end)
 
 -- ==================== MAIN RENDER LOOP ====================
 RunService.RenderStepped:Connect(function()
@@ -902,7 +1199,6 @@ RunService.RenderStepped:Connect(function()
             State.CurrentTarget = getClosestTarget()
         end
         State.CurrentTarget = (Config.SilentAim or Config.SilentAimAttach) and getClosestTarget() or nil
-        local closest = getClosestTarget()
         if FOVCircle then
             FOVCircle.Visible = Config.SilentAim
             if Config.SilentAim then
@@ -915,35 +1211,10 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         end
-        if closest and closest.Character then
-            local char = closest.Character
-            local hum = char:FindFirstChild("Humanoid")
-            local aimPart = Config.SelectedAimPart or "Head"
-            local targetPart
-            if aimPart == "Random" then
-                targetPart = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-            elseif aimPart == "HumanoidRootPart" then
-                targetPart = char:FindFirstChild("HumanoidRootPart")
-            else
-                targetPart = char:FindFirstChild("Head")
-            end
-            if hum and hum.Health > 0 and targetPart then
-                local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-                local targetPos = targetPart.Position
-                State.AimPartTarget = State.AimPartTarget:Lerp(targetPos, State.VelocitySmoothFactor)
-                local smoothTarget = State.AimPartTarget
-                local screenPos, onScreen = Camera:WorldToViewportPoint(smoothTarget)
-                if onScreen then
-                    if not State.CurrentTracerTarget then
-                        State.CurrentTracerTarget = Drawing.new("Line")
-                        State.CurrentTracerTarget.Thickness = 1.3
-                        State.CurrentTracerTarget.Color = Color3.fromRGB(255, 50, 50)
-                    end
-                    State.CurrentTracerTarget.Visible = true
-                    State.CurrentTracerTarget.From = screenCenter
-                    State.CurrentTracerTarget.To = Vector2.new(screenPos.X, screenPos.Y)
-                end
-            end
+        if Config.SilentAim and State.CurrentTarget then
+            updateTracer(State.CurrentTarget)
+        else
+            hideTracer()
         end
         if Config.WalkSpeed and RootPart and Humanoid then
             if Humanoid.MoveDirection.Magnitude > 0 then
@@ -978,29 +1249,6 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ==================== ANTI KILL ====================
-local AntiKillEnabled = false
-RunService.Heartbeat:Connect(function()
-    if not AntiKillEnabled then return end
-    if isDowned() then
-        local hrp = getHRP()
-        if hrp then
-            if not State.SnapY then
-                local pos = hrp.CFrame
-                State.SnapY = pos + Vector3.new(0, -100, 0)
-            end
-            hrp.CFrame = CFrame.new(State.SnapY.Position)
-        end
-    else
-        if State.SnapY then
-            local hum = CharModule and CharModule.get_hum()
-            if hum then hum.Health = 0 end
-            State.SnapY = nil
-        end
-        AntiKillEnabled = false
-    end
-end)
-
 -- ==================== PICKUP LOOP ====================
 RunService.Heartbeat:Connect(function()
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
@@ -1008,6 +1256,7 @@ RunService.Heartbeat:Connect(function()
         RootPart = Character:WaitForChild("HumanoidRootPart")
     end
     pcall(function()
+        if not Config.PickupItems then return end
         local char = LocalPlayer.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         local charPos = char:GetPivot().Position
@@ -1019,7 +1268,7 @@ RunService.Heartbeat:Connect(function()
                     local dist = (itemPos - charPos).Magnitude
                     if dist <= 50 then
                         local rarity = item:GetAttribute("RarityName") or "Common"
-                        if Config.PickupRarity == "All" or Config.PickupRarity == rarity then
+                        if Config.PickupRarities[rarity] then
                             local PickupZone = item:FindFirstChild("PickUpZone")
                             local hrp = char:FindFirstChild("HumanoidRootPart")
                             if PickupZone and hrp then
@@ -1103,6 +1352,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 end)
 lockYPosition()
 
+-- ==================== AUTO ATTACK ====================
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
     State.AutoAttackRunning = false
@@ -1192,10 +1442,6 @@ Players.PlayerRemoving:Connect(function(player)
     end
 end)
 
-for _, player in ipairs(Players:GetPlayers()) do setupFastFinishForPlayer(player) end
-Players.PlayerAdded:Connect(setupFastFinishForPlayer)
-
--- ==================== AUTO FINNISH LOOP ====================
 task.spawn(function()
     while true do
         task.wait(0.4)
@@ -1205,11 +1451,6 @@ task.spawn(function()
             end
         end
     end
-end)
-
-SetupAutoSkip()
-ReplicatedStorage.ChildAdded:Connect(function(child)
-    if child.Name == "Remotes" then SetupAutoSkip() end
 end)
 
 task.spawn(function()
@@ -1249,7 +1490,6 @@ RunService.RenderStepped:Connect(function()
         end
     end
     for _, item in ipairs(toRemove) do State.ItemDrawings[item] = nil end
-    
     local droppedItems = Workspace:FindFirstChild("DroppedItems")
     if not droppedItems then return end
     local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1348,9 +1588,14 @@ local SilentAimToggle = CombatTab:Toggle({
     Callback = function(val)
         Config.SilentAim = val
         State.CurrentTarget = nil
+        if not val then hideTracer() end
     end
 })
-RegisterConfig("SilentAim", SilentAimToggle)
+RegisterElement("SilentAim", SilentAimToggle, "Toggle", function(v)
+    Config.SilentAim = v
+    State.CurrentTarget = nil
+    if not v then hideTracer() end
+end)
 
 local LineLockToggle = CombatTab:Toggle({
     Title = "Line Lock",
@@ -1360,7 +1605,10 @@ local LineLockToggle = CombatTab:Toggle({
         State.CurrentTarget = nil
     end
 })
-RegisterConfig("SilentAimAttach", LineLockToggle)
+RegisterElement("LineLock", LineLockToggle, "Toggle", function(v)
+    Config.SilentAimAttach = v
+    State.CurrentTarget = nil
+end)
 
 local FOVSlider = CombatTab:Slider({
     Title = "FOV",
@@ -1370,7 +1618,9 @@ local FOVSlider = CombatTab:Slider({
         State.FOV = tonumber(val) or 120
     end
 })
-RegisterConfig("FOVRadius", FOVSlider)
+RegisterElement("FOVRadius", FOVSlider, "Slider", function(v)
+    State.FOV = tonumber(v) or 120
+end)
 
 local AimPartDropdown = CombatTab:Dropdown({
     Title = "Aim Part",
@@ -1380,7 +1630,9 @@ local AimPartDropdown = CombatTab:Dropdown({
         Config.SelectedAimPart = val
     end
 })
-RegisterConfig("AimPart", AimPartDropdown)
+RegisterElement("AimPart", AimPartDropdown, "Dropdown", function(v)
+    Config.SelectedAimPart = v
+end)
 
 local FriendsInput = CombatTab:Input({
     Title = "Safe Friend",
@@ -1394,17 +1646,30 @@ local FriendsInput = CombatTab:Input({
         for word in string.gmatch(val, "%S+") do
             table.insert(Config.FriendsList, word)
         end
-        for player, cache in pairs(State.ESPCache) do
-            if cache.drawings and cache.drawings[1] then
-                cache.drawings[1].Color = isPlayerExcluded(player.Name) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 255, 255)
-            end
+    end
+})
+RegisterElement("FriendsList", FriendsInput, "Input", function(v)
+    Config.FriendsList = {}
+    for w in string.gmatch(v, "%S+") do table.insert(Config.FriendsList, w) end
+end)
+
+CombatTab:Divider()
+CombatTab:Section({Title = "Auto Hack ATMs / Fish"})
+
+CombatTab:Toggle({
+    Title = "Auto Hack ATMs I Fish",
+    Desc = "Hits slider minigame automatically",
+    Default = false,
+    Callback = function(val)
+        Config.AutoHackATMs = val
+        if val then
+            startAutoHack()
+            if WindUI then WindUI:Notify({Title = "✅ Auto Hack ATMs Enabled", Duration = 3}) end
         end
     end
 })
-RegisterConfig("FriendsList", FriendsInput)
 
-CombatTab:Divider()
-
+-- ==================== WEAPON MODS ====================
 local WeaponTab = Window:Tab({Title = "Weapon Mods", Icon = "layers"})
 WeaponTab:Section({Title = "Mods"})
 
@@ -1551,7 +1816,7 @@ WeaponTab:Toggle({
     Callback = function(val) Config.AutoAttack = val end
 })
 
--- ==================== VISUALS TAB ====================
+-- ==================== VISUALS ====================
 local VisualsTab = Window:Tab({Title = "Visuals", Icon = "eye"})
 VisualsTab:Section({Title = "View"})
 
@@ -1697,12 +1962,9 @@ CharTab:Toggle({
     Title = "Anti Kill",
     Default = false,
     Callback = function(val)
-        AntiKillEnabled = val
-        if val then
-            if WindUI then WindUI:Notify({Title = "Anti Kill Enabled", Duration = 3}) end
-        else
-            if WindUI then WindUI:Notify({Title = "❌ Anti Kill Disabled", Duration = 3}) end
-        end
+        Config.AntiKill = val
+        if not val then cleanupAntiKill() end
+        if WindUI then WindUI:Notify({Title = val and "✅ Anti Kill Enabled" or "❌ Anti Kill Disabled", Duration = 3}) end
     end
 })
 
@@ -1711,12 +1973,12 @@ CharTab:Section({Title = "Auto"})
 
 CharTab:Toggle({Title = "Pickup items", Default = false, Callback = function(val) Config.PickupItems = val end})
 
-CharTab:Dropdown({
-    Title = "Pickup Rarity",
-    Values = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Omega"},
-    Default = "All",
-    Callback = function(val) Config.PickupRarity = val end
-})
+CharTab:Toggle({Title = "Common", Default = false, Callback = function(val) Config.PickupRarities.Common = val end})
+CharTab:Toggle({Title = "Uncommon", Default = false, Callback = function(val) Config.PickupRarities.Uncommon = val end})
+CharTab:Toggle({Title = "Rare", Default = false, Callback = function(val) Config.PickupRarities.Rare = val end})
+CharTab:Toggle({Title = "Epic", Default = false, Callback = function(val) Config.PickupRarities.Epic = val end})
+CharTab:Toggle({Title = "Legendary", Default = false, Callback = function(val) Config.PickupRarities.Legendary = val end})
+CharTab:Toggle({Title = "Omega", Default = false, Callback = function(val) Config.PickupRarities.Omega = val end})
 
 CharTab:Toggle({
     Title = "Anti Ragdoll",
@@ -1792,48 +2054,15 @@ CharTab:Toggle({
 
 CharTab:Toggle({
     Title = "Health Blood",
+    Desc = "Auto-heal when HP <= 75",
     Default = false,
     Callback = function(val)
+        Config.HealthBlood = val
         State.AutoHealEnabled = val
-        if not State.HealLoopStarted then
-            State.HealLoopStarted = true
-            task.spawn(function()
-                while true do
-                    task.wait(1)
-                    if State.AutoHealEnabled then
-                        local Ch = LocalPlayer.Character
-                        if Ch and Ch:FindFirstChildWhichIsA("Humanoid") and Ch.Humanoid.Health < 95 then
-                            local function GetHeal()
-                                local SearchPlaces = {LocalPlayer.Backpack, LocalPlayer.Character, LocalPlayer:FindFirstChild("Inventory"), LocalPlayer:FindFirstChild("StarterGear")}
-                                for _, Place in pairs(SearchPlaces) do
-                                    if Place then
-                                        for _, T in pairs(Place:GetChildren()) do
-                                            if T:IsA("Tool") and (T:GetAttribute("HealthRestoreAmount") or T:GetAttribute("HealAmount") or T:GetAttribute("RestoreHealth")) then
-                                                return T
-                                            end
-                                        end
-                                    end
-                                end
-                                return nil
-                            end
-                            local T = GetHeal()
-                            if T then
-                                local Old = Ch:FindFirstChildWhichIsA("Tool")
-                                T.Parent = Ch
-                                task.wait(0.01)
-                                if T:FindFirstChild("RemoteEvent") then T.RemoteEvent:FireServer()
-                                elseif T:FindFirstChild("Use") then T:Use()
-                                else T:Activate() end
-                                local Hum = Ch:FindFirstChildWhichIsA("Humanoid")
-                                local Anim = Hum and Hum:FindFirstChildWhichIsA("Animator")
-                                if Anim then for _, Track in pairs(Anim:GetPlayingAnimationTracks()) do Track:Stop(0) end end
-                                task.wait(0.2)
-                                if Old and Old.Parent == Ch then Old.Parent = LocalPlayer.Backpack end
-                            end
-                        end
-                    end
-                end
-            end)
+        if val then
+            if WindUI then WindUI:Notify({Title = "✅ Auto Heal Enabled (HP <= 75)", Duration = 3}) end
+        else
+            if WindUI then WindUI:Notify({Title = "❌ Auto Heal Disabled", Duration = 3}) end
         end
     end
 })
@@ -1859,6 +2088,16 @@ CharTab:Toggle({
     end
 })
 
+CharTab:Dropdown({
+    Title = "Snap Direction",
+    Values = {"Down", "Up"},
+    Default = "Down",
+    Callback = function(val)
+        Config.SnapDirection = val
+        if State.SnapActive then performTeleport() end
+    end
+})
+
 CharTab:Slider({
     Title = "Snap Height",
     Step = 1,
@@ -1866,7 +2105,8 @@ CharTab:Slider({
     Callback = function(val)
         Config.SnapHeight = val
         if State.SnapActive and RootPart and State.SnapY then
-            local newPos = Vector3.new(RootPart.Position.X, State.SnapY - Config.SnapHeight, RootPart.Position.Z)
+            local direction = (Config.SnapDirection == "Up") and 1 or -1
+            local newPos = Vector3.new(RootPart.Position.X, State.SnapY + (direction * Config.SnapHeight), RootPart.Position.Z)
             RootPart.CFrame = CFrame.new(newPos)
             State.SnapY = newPos.Y
         end
@@ -1982,19 +2222,33 @@ SettingsTab:Section({Title = "Config Management"})
 
 SettingsTab:Button({
     Title = "Save Config",
-    Callback = function()
-        if ConfigData and ConfigData.Save then ConfigData:Save() end
-    end
+    Desc = "Save all settings to " .. CONFIG_FILE,
+    Callback = function() SaveConfig() end
+})
+
+SettingsTab:Button({
+    Title = "Load Config",
+    Desc = "Load settings from file",
+    Callback = function() LoadConfig() end
 })
 
 SettingsTab:Button({
     Title = "Delete Config",
-    Callback = function()
-        if ConfigData and ConfigData.Delete then ConfigData:Delete() end
-    end
+    Desc = "Delete config file",
+    Callback = function() DeleteConfig() end
 })
 
-if ConfigData and ConfigData.Load then ConfigData:Load() end
+SettingsTab:Toggle({
+    Title = "Auto Save",
+    Desc = "Save every 60 seconds",
+    Default = false,
+    Callback = function(val) AutoSaveEnabled = val end
+})
+
+task.spawn(function()
+    task.wait(3)
+    pcall(LoadConfig)
+end)
 
 -- ==================== BUY TAB ====================
 local BuyTab = Window:Tab({Title = "Buy", Icon = "house"})
@@ -2117,46 +2371,13 @@ VehicleTab:Button({
 local FishTab = Window:Tab({Title = "Fish", Icon = "fish"})
 FishTab:Section({Title = "Auto Fishing"})
 
-FishTab:Button({
-    Title = "Auto Hack ATMs / Fish",
-    Desc = "Hits slider minigame automatically",
-    Callback = function()
-        local SliderMinigame
-        pcall(function()
-            SliderMinigame = require(ReplicatedStorage.Modules.Game.Minigames.SliderMinigame)
-        end)
-        if not SliderMinigame then
-            if WindUI then WindUI:Notify({Title = "❌ SliderMinigame not found", Duration = 3}) end
-            return
-        end
-        local autoEnabled = true
-        local lastClick = 0
-        task.spawn(function()
-            while autoEnabled do
-                task.wait()
-                pcall(function()
-                    if not (SliderMinigame.enabled and SliderMinigame.enabled.get()) then return end
-                    local needle = SliderMinigame.needle_pos.get()
-                    local target = SliderMinigame.target_pos.get()
-                    local size = SliderMinigame.target_size.get()
-                    local tolerance = (type(size) == "number" and size > 0) and (size / 2) * 0.7 or 0.02
-                    if math.abs(needle - target) <= tolerance and tick() - lastClick > 0.5 then
-                        lastClick = tick()
-                        local cam = Camera
-                        local x, y = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
-                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-                        task.wait(0.03)
-                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-                    end
-                end)
-            end
-        end)
-        if WindUI then WindUI:Notify({Title = "✅ Auto Fish Hack Activated", Duration = 3}) end
-    end
+FishTab:Paragraph({
+    Title = "Auto Hack ATMs I Fish",
+    Desc = "This feature has been moved to the Combat tab."
 })
 
--- ==================== ФИНАЛЬНЫЙ ВЫВОД ====================
+-- ==================== FINAL ====================
 if WindUI then
     WindUI:Notify({Title = "rick Hub loaded", Desc = "Press G to toggle menu", Duration = 5})
 end
-print("[rick Hub] Loaded successfully")
+print("[rick Hub] Full script loaded successfully")
