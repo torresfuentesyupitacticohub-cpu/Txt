@@ -1,14 +1,21 @@
 -- ============================================================
 -- rick Hub | spin - ПОЛНЫЙ ФИНАЛЬНЫЙ СКРИПТ
--- Все исправления:
---   • Silent Aim Random реально чередует Head / Torso (HRP)
---   • Anti Kill переписан через sentinel-часть
---   • Silent Aim tracer скрыт, пока нет цели в FOV
---   • Pickup Items: множественный выбор редкостей (без "All")
---   • Auto Hack ATMs I Fish перенесён в Combat tab
---   • Snap Under Map: выбор направления Down/Up
---   • Auto Health Blood срабатывает при HP <= 75
---   • Config Management: рабочее сохранение/загрузка через writefile/readfile
+-- Включено:
+--   • Silent Aim (Random чередует Head / Torso)
+--   • Line Lock, FOV, Aim Part
+--   • Auto Hack ATMs I Fish (в Combat tab)
+--   • Anti Kill (через sentinel)
+--   • Anti Aim / Anti Lock
+--   • Auto Attack, Melee Aura
+--   • Weapon Mods
+--   • ESP (Inventory, Name, Health, Distance, Highlight)
+--   • Pickup Items с MultiDropdown (без "All")
+--   • Auto Heal (HP <= 75)
+--   • Snap Under Map (Down/Up)
+--   • Auto Finish, Anti Ragdoll, Hide Name, Auto Respawn
+--   • Server Hop, Claim All Quest
+--   • Skip Animation (с Flag = 'skip_anim')
+--   • Config Management (Save/Load/Delete + AutoSave) — рабочий
 -- ============================================================
 
 local Players = game:GetService("Players")
@@ -93,7 +100,6 @@ local State = {
     OriginalSprintUpdate = nil,
     HealLoopStarted = false,
     AutoHealEnabled = false,
-    HideNameEnabled = false,
     PlayerNameLabel = nil,
     OriginalNameText = "",
     HealThreshold = 75,
@@ -186,6 +192,7 @@ if not Window then
         Button = function() return dummyMethods end,
         Input = function() return dummyMethods end,
         Dropdown = function() return dummyMethods end,
+        MultiDropdown = function() return dummyMethods end,
         Divider = function() return dummyMethods end,
         Label = function() return {SetDesc = function() end} end,
         Paragraph = function() return dummyMethods end
@@ -217,7 +224,17 @@ local function CollectValues()
     local data = {}
     for key, entry in pairs(_G.RegisteredElements) do
         local el = entry.element
-        if el then
+        if entry.type == "MultiDropdown" then
+            local selected = {}
+            for rarity, enabled in pairs(Config.PickupRarities) do
+                if enabled then table.insert(selected, rarity) end
+            end
+            data[key] = {type = "MultiDropdown", value = selected}
+        elseif entry.type == "Flag" then
+            if key == "SkipCrate" then
+                data[key] = {type = "Flag", value = Window.EnabledSkip}
+            end
+        elseif el then
             local ok, val = pcall(function() return el.Value end)
             if ok and val ~= nil then
                 data[key] = {type = entry.type, value = val}
@@ -231,14 +248,36 @@ local function ApplyValues(data)
     if not data then return end
     for key, entry in pairs(data) do
         local reg = _G.RegisteredElements[key]
-        if reg and reg.element then
-            local el = reg.element
+        if reg then
             local val = entry.value
-            pcall(function()
-                if el.Set then el:Set(val)
-                elseif el.Value ~= nil then el.Value = val end
-            end)
-            if reg.callback then pcall(reg.callback, val) end
+            if entry.type == "MultiDropdown" then
+                for k, _ in pairs(Config.PickupRarities) do
+                    Config.PickupRarities[k] = false
+                end
+                if type(val) == "table" then
+                    for _, rarity in ipairs(val) do
+                        if Config.PickupRarities[rarity] ~= nil then
+                            Config.PickupRarities[rarity] = true
+                        end
+                    end
+                end
+                if reg.element and reg.element.Set then
+                    pcall(function() reg.element:Set(val) end)
+                end
+            elseif entry.type == "Flag" then
+                if key == "SkipCrate" then
+                    Window.EnabledSkip = val
+                    if reg.callback then pcall(reg.callback, val) end
+                end
+            else
+                if reg.element then
+                    pcall(function()
+                        if reg.element.Set then reg.element:Set(val)
+                        elseif reg.element.Value ~= nil then reg.element.Value = val end
+                    end)
+                end
+                if reg.callback then pcall(reg.callback, val) end
+            end
         end
     end
 end
@@ -1973,12 +2012,57 @@ CharTab:Section({Title = "Auto"})
 
 CharTab:Toggle({Title = "Pickup items", Default = false, Callback = function(val) Config.PickupItems = val end})
 
-CharTab:Toggle({Title = "Common", Default = false, Callback = function(val) Config.PickupRarities.Common = val end})
-CharTab:Toggle({Title = "Uncommon", Default = false, Callback = function(val) Config.PickupRarities.Uncommon = val end})
-CharTab:Toggle({Title = "Rare", Default = false, Callback = function(val) Config.PickupRarities.Rare = val end})
-CharTab:Toggle({Title = "Epic", Default = false, Callback = function(val) Config.PickupRarities.Epic = val end})
-CharTab:Toggle({Title = "Legendary", Default = false, Callback = function(val) Config.PickupRarities.Legendary = val end})
-CharTab:Toggle({Title = "Omega", Default = false, Callback = function(val) Config.PickupRarities.Omega = val end})
+local PickupRarityDropdown
+local hasMultiDropdown = false
+pcall(function()
+    if CharTab.MultiDropdown then hasMultiDropdown = true end
+end)
+
+if hasMultiDropdown then
+    PickupRarityDropdown = CharTab:MultiDropdown({
+        Title = "Pickup Rarities",
+        Desc = "Select one or more rarities",
+        Values = {"Common", "Uncommon", "Rare", "Epic", "Legendary", "Omega"},
+        Default = {},
+        Callback = function(selected)
+            for k, _ in pairs(Config.PickupRarities) do
+                Config.PickupRarities[k] = false
+            end
+            if type(selected) == "table" then
+                for _, rarity in ipairs(selected) do
+                    if Config.PickupRarities[rarity] ~= nil then
+                        Config.PickupRarities[rarity] = true
+                    end
+                end
+            end
+        end
+    })
+    RegisterElement("PickupRarities", PickupRarityDropdown, "MultiDropdown", function(selected)
+        for k, _ in pairs(Config.PickupRarities) do
+            Config.PickupRarities[k] = false
+        end
+        if type(selected) == "table" then
+            for _, rarity in ipairs(selected) do
+                if Config.PickupRarities[rarity] ~= nil then
+                    Config.PickupRarities[rarity] = true
+                end
+            end
+        end
+    end)
+else
+    for _, rarity in ipairs({"Common", "Uncommon", "Rare", "Epic", "Legendary", "Omega"}) do
+        local toggle = CharTab:Toggle({
+            Title = rarity,
+            Default = Config.PickupRarities[rarity] or false,
+            Callback = function(val)
+                Config.PickupRarities[rarity] = val
+            end
+        })
+        RegisterElement("Pickup_" .. rarity, toggle, "Toggle", function(v)
+            Config.PickupRarities[rarity] = v
+        end)
+    end
+end
 
 CharTab:Toggle({
     Title = "Anti Ragdoll",
@@ -2297,45 +2381,52 @@ pcall(function()
     CrateController = require(game:GetService("ReplicatedStorage").Modules.Game.CrateSystem.Crate)
 end)
 
-local EnabledSkip = false
+Window.EnabledSkip = false
+
 BuyTab:Toggle({
-    Title = "Skip Crate Animation",
-    Desc = "Instantly opens crates",
+    Title = 'Skip Animation',
+    Flag = 'skip_anim',
+    Icon = 'check',
+    Type = 'Checkbox',
     Value = false,
-    Callback = function(val)
-        EnabledSkip = val
-        if EnabledSkip and CrateController then
+    Callback = function(Value)
+        Window.EnabledSkip = Value
+        if Window.EnabledSkip then
             task.spawn(function()
-                while EnabledSkip do
-                    task.wait()
-                    if CrateController.class and CrateController.class.objects then
+                while Window.EnabledSkip do
+                    if CrateController and CrateController.class and CrateController.class.objects then
                         for _, crate in pairs(CrateController.class.objects) do
                             pcall(function()
-                                if crate.states and crate.states.open and crate.states.open.set then
-                                    crate.states.open.set(true)
-                                end
-                                if CrateController.skipping and CrateController.skipping.set then
-                                    CrateController.skipping.set(true)
-                                end
+                                crate.states.open.set(true)
+                                CrateController.skipping.set(true)
                             end)
                         end
                     end
-                    if CrateController.spinning and CrateController.skip_spin then
-                        if not CrateController.spinning.get() then
-                            pcall(function() CrateController.skip_spin() end)
-                        end
-                    end
-                end
-            end)
-        elseif CrateController then
-            pcall(function()
-                if CrateController.skipping and CrateController.skipping.set then
-                    CrateController.skipping.set(false)
+                    task.wait(0.05)
                 end
             end)
         end
     end
 })
+
+RegisterElement("SkipCrate", nil, "Flag", function(v)
+    Window.EnabledSkip = v
+    if v and CrateController then
+        task.spawn(function()
+            while Window.EnabledSkip do
+                if CrateController.class and CrateController.class.objects then
+                    for _, crate in pairs(CrateController.class.objects) do
+                        pcall(function()
+                            crate.states.open.set(true)
+                            CrateController.skipping.set(true)
+                        end)
+                    end
+                end
+                task.wait(0.05)
+            end
+        end)
+    end
+end)
 
 -- ==================== CAR TAB ====================
 local VehicleTab = Window:Tab({Title = "Car", Icon = "car"})
