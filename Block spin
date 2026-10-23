@@ -1817,6 +1817,7 @@ loadESP()
 -- =============================================
 -- COMBAT TAB
 -- =============================================
+do
 local aN = B:Tab({Title = "COMBAT:", Icon = "crosshair"})
 
 aN:Section({Title = "GUN:"})
@@ -1832,30 +1833,29 @@ local aO = aN:Toggle({
 D:Register("SilentAim", aO)
 
 -- ✅ Selección de objetivo Silent Aim (ambas opciones hacen random switching cada 3s)
-local SilentAimSelectionValue = "Random"
-local aSelection
-pcall(function()
-    aSelection = aN:Dropdown({
-        Title = "Target Selection",
-        Desc = "Head and Torso / Random (ambos cambian cada 3s)",
-        Values = {"Head and Torso", "Random"},
-        Value = "Random",
-        Callback = function(val)
-            SilentAimSelectionValue = val or "Random"
-            -- ✅ Ambas opciones hacen el mismo comportamiento: random switching cada 3s
-            -- Reiniciar random pick inmediatamente
-            if math.random() > 0.5 then
-                SilentAimTargetPart = "head"
-            else
-                SilentAimTargetPart = "torso"
+do
+    local aSelection
+    pcall(function()
+        aSelection = aN:Dropdown({
+            Title = "Target Selection",
+            Desc = "Head and Torso / Random (ambos cambian cada 3s)",
+            Values = {"Head and Torso", "Random"},
+            Value = "Random",
+            Callback = function(val)
+                -- ✅ Ambas opciones hacen el mismo comportamiento: random switching cada 3s
+                if math.random() > 0.5 then
+                    SilentAimTargetPart = "head"
+                else
+                    SilentAimTargetPart = "torso"
+                end
+                if A then
+                    A:Notify({Title = "✅ Target: " .. (val or "Random"), Description = "Cambia entre Head/Torso cada 3s", Duration = 2})
+                end
             end
-            if A then
-                A:Notify({Title = "✅ Target: " .. SilentAimSelectionValue, Description = "Cambia entre Head/Torso cada 3s", Duration = 2})
-            end
-        end
-    })
-    D:Register("SilentAimTargetSelection", aSelection)
-end)
+        })
+        D:Register("SilentAimTargetSelection", aSelection)
+    end)
+end
 
 local aP = aN:Toggle({
     Title = "Red Line Lock",
@@ -1902,10 +1902,12 @@ D:Register("FriendsList", aR)
 pcall(function()
     aN:Divider()
 end)
+end -- cierra do del COMBAT TAB
 
 -- =============================================
 -- WEAPON TAB
 -- =============================================
+do
 local aS = B:Tab({Title = "WEAPON:", Icon = "layers"})
 
 aS:Section({Title = "MODS:"})
@@ -2141,10 +2143,12 @@ local aV = aS:Toggle({
     end
 })
 D:Register("AutoAttack_Enabled", aV)
+end -- cierra do del WEAPON TAB
 
 -- =============================================
 -- ESP TAB
 -- =============================================
+do
 local aW = B:Tab({Title = "ESP:", Icon = "eye"})
 
 aW:Section({Title = "Visual:"})
@@ -2258,10 +2262,12 @@ for a1, a2 in pairs(game.Players:GetPlayers()) do
         updateHighlight(a2)
     end
 end
+end -- cierra do del ESP TAB
 
 -- =============================================
 -- CHARACTER TAB
 -- =============================================
+do
 local a1 = B:Tab({Title = "CHARACTER:", Icon = "user"})
 
 a1:Section({Title = "CHARACTER:"})
@@ -2546,66 +2552,119 @@ D:Register("SnapHeight", be)
 -- =============================================
 -- ✅ Anti Bump: Si HP > 40, hace snap 2 veces y se desactiva
 -- =============================================
-a1:Divider()
-a1:Section({Title = "Anti Bump"})
+do
+    a1:Divider()
+    a1:Section({Title = "Anti Bump"})
 
-local antiBumpEnabled = false
-local antiBumpLoop = nil
+    local antiBumpEnabled = false
+    local antiBumpLoop = nil
 
-local function doAntiBumpSnap()
-    if not u then return end
-    -- Snap 1
-    Z = u.Position.Y
-    V = true
-    performTeleport()
-    task.wait(0.15)
-    -- Snap 2
-    performTeleport()
-    task.wait(0.15)
-    -- Desactivar automáticamente
-    V = false
-    X = nil
-    Z = nil
-end
+    local function doAntiBumpSnap()
+        if not u then return end
+        -- Snap 1
+        Z = u.Position.Y
+        V = true
+        performTeleport()
+        task.wait(0.15)
+        -- Snap 2
+        performTeleport()
+        task.wait(0.15)
+        -- Desactivar automáticamente
+        V = false
+        X = nil
+        Z = nil
+    end
 
-local aBump = a1:Toggle({
-    Title = "Anti Bump",
-    Desc = "Si HP > 40, hace snap 2 veces y se desactiva",
-    Default = false,
-    Callback = function(bx)
-        antiBumpEnabled = bx
-        if antiBumpLoop then
-            pcall(function() task.cancel(antiBumpLoop) end)
-            antiBumpLoop = nil
-        end
-        if bx then
-            antiBumpLoop = task.spawn(function()
-                while antiBumpEnabled do
-                    task.wait(0.3)
-                    local hum = o.get_hum()
-                    if hum and hum.Health > 40 then
-                        -- Verificar que NO esté en snap manual activo (no interferir con Snap Under Map)
-                        if not W then
-                            pcall(doAntiBumpSnap)
-                            -- Esperar un poco antes de otra verificación para no spam
-                            task.wait(1.5)
+    local aBump = a1:Toggle({
+        Title = "Anti Bump",
+        Desc = "Si HP > 40, hace snap 2 veces y se desactiva",
+        Default = false,
+        Callback = function(bx)
+            antiBumpEnabled = bx
+            if antiBumpLoop then
+                pcall(function() task.cancel(antiBumpLoop) end)
+                antiBumpLoop = nil
+            end
+            if bx then
+                antiBumpLoop = task.spawn(function()
+                    while antiBumpEnabled do
+                        task.wait(0.3)
+                        local hum = o.get_hum()
+                        if hum and hum.Health > 40 then
+                            if not W then
+                                pcall(doAntiBumpSnap)
+                                task.wait(1.5)
+                            end
                         end
                     end
-                end
-            end)
-            if A then A:Notify({Title = "✅ Anti Bump ON", Description = "HP > 40 → Snap x2", Duration = 3}) end
-        else
-            if A then A:Notify({Title = "❌ Anti Bump OFF", Duration = 3}) end
+                end)
+                if A then A:Notify({Title = "✅ Anti Bump ON", Description = "HP > 40 → Snap x2", Duration = 3}) end
+            else
+                if A then A:Notify({Title = "❌ Anti Bump OFF", Duration = 3}) end
+            end
         end
-    end
-})
-D:Register("AntiBump", aBump)
+    })
+    D:Register("AntiBump", aBump)
 
-a1:Divider()
+    -- ✅ GOD MODE: Mantiene tu HP en MaxHealth constantemente
+    a1:Divider()
+    a1:Section({Title = "God Mode"})
+
+    local godModeEnabled = false
+    local godModeLoop = nil
+
+    local aGod = a1:Toggle({
+        Title = "God Mode",
+        Desc = "Mantiene tu vida al máximo (no mueres)",
+        Default = false,
+        Callback = function(bx)
+            godModeEnabled = bx
+            if godModeLoop then
+                pcall(function() task.cancel(godModeLoop) end)
+                godModeLoop = nil
+            end
+            if bx then
+                godModeLoop = task.spawn(function()
+                    while godModeEnabled do
+                        task.wait(0.1)
+                        pcall(function()
+                            local hum = o.get_hum()
+                            if hum then
+                                -- Forzar MaxHealth muy alto y regenerar HP
+                                if hum.MaxHealth < 1e9 then
+                                    hum.MaxHealth = 1e9
+                                end
+                                if hum.Health < hum.MaxHealth then
+                                    hum.Health = hum.MaxHealth
+                                end
+                                -- Anti-negate attributes que el juego usa para marcar daño
+                                hum:SetAttribute("HasBeenDowned", false)
+                                hum:SetAttribute("IsDead", false)
+                            end
+                        end)
+                    end
+                end)
+                if A then A:Notify({Title = "✅ God Mode ON", Description = "Vida máxima permanente", Duration = 3}) end
+            else
+                -- Restaurar MaxHealth normal
+                pcall(function()
+                    local hum = o.get_hum()
+                    if hum then hum.MaxHealth = 100 end
+                end)
+                if A then A:Notify({Title = "❌ God Mode OFF", Duration = 3}) end
+            end
+        end
+    })
+    D:Register("GodMode", aGod)
+
+    a1:Divider()
+end
+end -- cierra do del CHARACTER TAB
 
 -- =============================================
 -- PLAYER TAB
 -- =============================================
+do
 local bf = B:Tab({Title = "PLAYER:", Icon = "person-standing"})
 
 bf:Section({Title = "PLAYER:"})
@@ -2633,10 +2692,12 @@ local bi = bf:Toggle({
 D:Register("AutoFinnish", bi)
 
 bf:Divider()
+end -- cierra do del PLAYER TAB
 
 -- =============================================
 -- MISC TAB
 -- =============================================
+do
 local bk = B:Tab({Title = "MISC:", Icon = "warehouse"})
 
 local bl = game.PlaceId
@@ -2675,88 +2736,84 @@ bk:Divider()
 -- =============================================
 -- ✅ Eliminar puertas (puertas normales + puertas de carros)
 -- =============================================
-bk:Section({Title = "Doors"})
+do
+    bk:Section({Title = "Doors"})
 
-local doorRemoverConnection
-local doorRemoverActive = false
+    local doorRemoverConnection
+    local doorRemoverActive = false
 
-local function isDoor(bx)
-    if not bx or not bx:IsA("BasePart") then return false end
-    local by = string.lower(bx.Name)
-    -- Patrones comunes de puertas normales y de vehículos
-    if by == "door" or by == "doors" or by == "gate" then return true end
-    if string.find(by, "door") then return true end
-    -- Puertas de carros: DoorLF, DoorRF, DoorLR, DoorRR, DoorFL, DoorFR, etc.
-    if string.match(by, "^door[lr][fr]$") then return true end
-    if string.match(by, "^door[flr]+$") then return true end
-    -- Trunk/Hood a veces cuentan como puertas de carro
-    if by == "trunk" or by == "hood" or by == "hooddoor" or by == "trunkdoor" then return true end
-    return false
-end
-
-local function removeDoor(bx)
-    if isDoor(bx) then
-        pcall(function()
-            bx.CanCollide = false
-            bx.Transparency = 1
-            bx.CanQuery = false
-            bx:Destroy()
-        end)
-        return true
+    local function isDoor(bx)
+        if not bx or not bx:IsA("BasePart") then return false end
+        local by = string.lower(bx.Name)
+        if by == "door" or by == "doors" or by == "gate" then return true end
+        if string.find(by, "door") then return true end
+        if string.match(by, "^door[lr][fr]$") then return true end
+        if string.match(by, "^door[flr]+$") then return true end
+        if by == "trunk" or by == "hood" or by == "hooddoor" or by == "trunkdoor" then return true end
+        return false
     end
-    return false
-end
 
-local function removeAllDoors()
-    local removed = 0
-    -- Buscar en todo el workspace
-    for _, by in ipairs(g:GetDescendants()) do
-        if isDoor(by) then
-            if removeDoor(by) then removed = removed + 1 end
-        end
-    end
-    return removed
-end
-
-bk:Button({
-    Title = "🚪 Remove All Doors",
-    Desc = "Elimina puertas del mapa y de carros (1 vez)",
-    Callback = function()
-        local removed = removeAllDoors()
-        if A then
-            A:Notify({Title = "🚪 Puertas Eliminadas", Description = "Removidas: " .. tostring(removed), Duration = 3})
-        end
-    end
-})
-
-bk:Toggle({
-    Title = "🚪 Auto Remove Doors",
-    Desc = "Elimina puertas nuevas automáticamente",
-    Default = false,
-    Callback = function(bx)
-        doorRemoverActive = bx
-        if doorRemoverConnection then
-            pcall(function() doorRemoverConnection:Disconnect() end)
-            doorRemoverConnection = nil
-        end
-        if bx then
-            -- Eliminar todas las puertas existentes primero
-            removeAllDoors()
-            -- Escuchar puertas nuevas que se agreguen al workspace
-            doorRemoverConnection = g.DescendantAdded:Connect(function(by)
-                if doorRemoverActive and isDoor(by) then
-                    task.wait(0.1)
-                    removeDoor(by)
-                end
+    local function removeDoor(bx)
+        if isDoor(bx) then
+            pcall(function()
+                bx.CanCollide = false
+                bx.Transparency = 1
+                bx.CanQuery = false
+                bx:Destroy()
             end)
-            if A then A:Notify({Title = "✅ Auto Remove Doors ON", Description = "Puertas nuevas se eliminarán", Duration = 3}) end
-        else
-            if A then A:Notify({Title = "❌ Auto Remove Doors OFF", Duration = 3}) end
+            return true
         end
+        return false
     end
-})
 
-bk:Divider()
+    local function removeAllDoors()
+        local removed = 0
+        for _, by in ipairs(g:GetDescendants()) do
+            if isDoor(by) then
+                if removeDoor(by) then removed = removed + 1 end
+            end
+        end
+        return removed
+    end
+
+    bk:Button({
+        Title = "🚪 Remove All Doors",
+        Desc = "Elimina puertas del mapa y de carros (1 vez)",
+        Callback = function()
+            local removed = removeAllDoors()
+            if A then
+                A:Notify({Title = "🚪 Puertas Eliminadas", Description = "Removidas: " .. tostring(removed), Duration = 3})
+            end
+        end
+    })
+
+    bk:Toggle({
+        Title = "🚪 Auto Remove Doors",
+        Desc = "Elimina puertas nuevas automáticamente",
+        Default = false,
+        Callback = function(bx)
+            doorRemoverActive = bx
+            if doorRemoverConnection then
+                pcall(function() doorRemoverConnection:Disconnect() end)
+                doorRemoverConnection = nil
+            end
+            if bx then
+                removeAllDoors()
+                doorRemoverConnection = g.DescendantAdded:Connect(function(by)
+                    if doorRemoverActive and isDoor(by) then
+                        task.wait(0.1)
+                        removeDoor(by)
+                    end
+                end)
+                if A then A:Notify({Title = "✅ Auto Remove Doors ON", Description = "Puertas nuevas se eliminarán", Duration = 3}) end
+            else
+                if A then A:Notify({Title = "❌ Auto Remove Doors OFF", Duration = 3}) end
+            end
+        end
+    })
+
+    bk:Divider()
+end
 
 bk:Input({
     Title = "Server Hop by ID",
@@ -2918,10 +2975,12 @@ local bs = bk:Button({
 D:Register("DeleteConfig", bs)
 
 if bq then bq(D) end
+end -- cierra do del MISC TAB
 
 -- =============================================
 -- Bypass Tweens
 -- =============================================
+do
 local bt = j.tween
 j.tween = function(bu, bv, bw)
     if bu and bu:IsA("NumberValue") and bw and bw.Value ~= nil then
@@ -3035,12 +3094,14 @@ r.CharacterAdded:Connect(function()
     task.wait(1)
     hookAllEmotes()
 end)
+end -- cierra do del Bypass/Hook section
 
 task.wait(2)
 
 -- =============================================
 -- Item ESP (Dropped Items)
 -- =============================================
+do
 local bw
 repeat task.wait() until workspace.CurrentCamera
 bw = workspace.CurrentCamera
@@ -3290,10 +3351,12 @@ a.PlayerRemoving:Connect(function(bx)
         w = {}
     end
 end)
+end -- cierra do del Item ESP
 
 -- =============================================
 -- BUY TAB
 -- =============================================
+do
 local BuyTab = B:Tab({Title = "Buy", Icon = "house"})
 
 BuyTab:Section({Title = "Buy"})
@@ -3392,6 +3455,7 @@ VehicleTab:Section({Title = "Car Guard / Bump Aura"})
 -- ✅ CAR GUARD (Guarda Car) - Bloquea 'crashed_car'
 -- Evita que tu carro se marque como destruido
 -- =============================================
+do
 local CarGuardEnabled = false
 
 local oldFireServerGuard
@@ -3563,10 +3627,13 @@ VehicleTab:Toggle({
 })
 
 VehicleTab:Divider()
+end -- cierra do del Car Guard / Bump Aura / Save Car
+end -- cierra do del BUY/VEHICLE tab
 
 -- =============================================
 -- BLOCKPIN (✅ Color Verde)
 -- =============================================
+do
 local function createBlockPin()
     local pinGui = Instance.new("ScreenGui")
     pinGui.Name = "YupitacticoBlockPin"
@@ -3622,6 +3689,7 @@ local function createBlockPin()
 end
 
 pcall(createBlockPin)
+end -- cierra do del BLOCKPIN
 
 task.wait(1)
 print("🎯 Yupitactico v3.1.4 - Todos los cambios aplicados!")
@@ -3630,6 +3698,7 @@ print("🎒 ESP Inventario: Actualización cada 10s")
 print("🖼️ ESP Items: Imagen + Nombre (imagen más grande)")
 print("🚪 Doors: Eliminar puertas (mapa + carros)")
 print("🛡️ Anti Bump: Snap x2 cuando HP > 40")
+print("❤️ God Mode: Vida máxima permanente")
 print("🚗 Car Guard: Bloquea 'crashed_car' (carro no se destruye)")
 print("💥 Bump Aura Car: Repela carros enemigos cercanos")
 print("💾 Save Car: Trae tu carro si se aleja >60 studs")
