@@ -69,6 +69,20 @@ if A then
         Color = Color3.fromRGB(0, 255, 0),
         Radius = 13,
     })
+
+    B:Tag({
+        Title = "premium 🔫",
+        Icon = "",
+        Color = Color3.fromRGB(0, 120, 255), -- Azul
+        Radius = 13,
+    })
+
+    B:Tag({
+        Title = "3.1.4",
+        Icon = "",
+        Color = Color3.fromRGB(0, 255, 0), -- Verde
+        Radius = 13,
+    })
 else
     B = {
         Tab = function(C)
@@ -97,6 +111,22 @@ local G = false
 local H = 120
 local I
 local J
+
+-- ✅ Variable global: parte objetivo del Silent Aim (cambia cada 3s)
+-- "head" o "torso" - selección random
+local SilentAimTargetPart = "head"
+
+task.spawn(function()
+    while true do
+        task.wait(3)
+        -- Cambiar aleatoriamente entre "head" y "torso"
+        if math.random() > 0.5 then
+            SilentAimTargetPart = "head"
+        else
+            SilentAimTargetPart = "torso"
+        end
+    end
+end)
 
 local K = Drawing.new("Line")
 K.Thickness = 1
@@ -1312,41 +1342,43 @@ if E and E.FireServer then
                         end
                         aO[5] = aV
                     else
-                        -- ✅ 4 HEAD + 4 TORSO
+                        -- ✅ RANDOM: cada 3s cambia entre HEAD o TORSO
                         aO[4] = CFrame.new(aU, aS)
                         local hits = {}
                         
-                        -- 4 hits a la cabeza
-                        for i = 1, 4 do
-                            local headOffset = Vector3.new(
-                                math.random(-0.15, 0.15),
-                                math.random(-0.15, 0.15),
-                                math.random(-0.15, 0.15)
-                            )
-                            table.insert(hits, {
-                                [1] = {
-                                    Instance = aP,
-                                    Normal = Vector3.new(0, 1, 0),
-                                    Position = aS + headOffset
-                                }
-                            })
-                        end
-                        
-                        -- 4 hits al torso
-                        local torsoPos = predictPosition(aTORSO, aQ)
-                        for i = 1, 4 do
-                            local torsoOffset = Vector3.new(
-                                math.random(-0.3, 0.3),
-                                math.random(-0.3, 0.3),
-                                math.random(-0.3, 0.3)
-                            )
-                            table.insert(hits, {
-                                [1] = {
-                                    Instance = aTORSO or aQ,
-                                    Normal = Vector3.new(0, 1, 0),
-                                    Position = torsoPos + torsoOffset
-                                }
-                            })
+                        if SilentAimTargetPart == "head" then
+                            -- 8 hits a la cabeza
+                            for i = 1, 8 do
+                                local headOffset = Vector3.new(
+                                    math.random(-0.15, 0.15),
+                                    math.random(-0.15, 0.15),
+                                    math.random(-0.15, 0.15)
+                                )
+                                table.insert(hits, {
+                                    [1] = {
+                                        Instance = aP,
+                                        Normal = Vector3.new(0, 1, 0),
+                                        Position = aS + headOffset
+                                    }
+                                })
+                            end
+                        else
+                            -- 8 hits al torso
+                            local torsoPos = predictPosition(aTORSO, aQ)
+                            for i = 1, 8 do
+                                local torsoOffset = Vector3.new(
+                                    math.random(-0.3, 0.3),
+                                    math.random(-0.3, 0.3),
+                                    math.random(-0.3, 0.3)
+                                )
+                                table.insert(hits, {
+                                    [1] = {
+                                        Instance = aTORSO or aQ,
+                                        Normal = Vector3.new(0, 1, 0),
+                                        Position = torsoPos + torsoOffset
+                                    }
+                                })
+                            end
                         end
                         
                         aO[5] = hits
@@ -2102,16 +2134,24 @@ local aX = aW:Toggle({
                     createBillboardForPlayer(aZ)
                 end
             end
-            ax = b.Heartbeat:Connect(function()
-                for aY, aZ in ipairs(a:GetPlayers()) do
-                    if aZ ~= r and aZ.Character then
-                        createBillboardForPlayer(aZ)
+            -- ✅ Actualización cada 10 segundos (en vez de cada Heartbeat)
+            ax = task.spawn(function()
+                while aw do
+                    task.wait(10)
+                    if not aw then break end
+                    for aY, aZ in ipairs(a:GetPlayers()) do
+                        if aZ ~= r and aZ.Character then
+                            createBillboardForPlayer(aZ)
+                        end
                     end
                 end
             end)
             if A then A:Notify({Title = "✅ ESP Items Enabled", Duration = 3}) end
         else
-            if ax then ax:Disconnect() ax = nil end
+            if ax then
+                task.cancel(ax)
+                ax = nil
+            end
             for aY, aZ in pairs(av) do aZ:Destroy() end
             av = {}
             if A then A:Notify({Title = "❌ ESP Items Disabled", Duration = 3}) end
@@ -3137,8 +3177,10 @@ end
 pcall(createBlockPin)
 
 task.wait(1)
-print("🎯 Yupitactico v2.2 - Todos los cambios aplicados!")
-print("📍 Silent Aim: 4 Head + 4 Torso")
+print("🎯 Yupitactico v3.1.4 - Todos los cambios aplicados!")
+print("📍 Silent Aim: Random Head/Torso cada 3s (8 hits)")
+print("🎒 ESP Inventario: Actualización cada 10s")
 print("🎨 Tracer: Color Cambiante (Rainbow)")
 print("⚪ FOV: Blanco")
-print("🟢 Tag: v2.2 Verde")
+print("🟢 Tag: 3.1.4 Verde")
+print("🔵 Tag: premium 🔫 Azul")
