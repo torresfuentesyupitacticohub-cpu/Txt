@@ -2606,56 +2606,223 @@ do
     })
     D:Register("AntiBump", aBump)
 
-    -- ✅ GOD MODE: Mantiene tu HP en MaxHealth constantemente
+    -- ✅ GOD MODE con GUI SEPARADA: botón que abre selector
     a1:Divider()
-    a1:Section({Title = "God Mode"})
+    a1:Section({Title = "Mode Selector"})
 
     local godModeEnabled = false
     local godModeLoop = nil
 
-    local aGod = a1:Toggle({
-        Title = "God Mode",
-        Desc = "Mantiene tu vida al máximo (no mueres)",
-        Default = false,
-        Callback = function(bx)
-            godModeEnabled = bx
-            if godModeLoop then
-                pcall(function() task.cancel(godModeLoop) end)
-                godModeLoop = nil
-            end
-            if bx then
-                godModeLoop = task.spawn(function()
-                    while godModeEnabled do
-                        task.wait(0.1)
-                        pcall(function()
-                            local hum = o.get_hum()
-                            if hum then
-                                -- Forzar MaxHealth muy alto y regenerar HP
-                                if hum.MaxHealth < 1e9 then
-                                    hum.MaxHealth = 1e9
-                                end
-                                if hum.Health < hum.MaxHealth then
-                                    hum.Health = hum.MaxHealth
-                                end
-                                -- Anti-negate attributes que el juego usa para marcar daño
-                                hum:SetAttribute("HasBeenDowned", false)
-                                hum:SetAttribute("IsDead", false)
-                            end
-                        end)
-                    end
-                end)
-                if A then A:Notify({Title = "✅ God Mode ON", Description = "Vida máxima permanente", Duration = 3}) end
-            else
-                -- Restaurar MaxHealth normal
+    -- Función para activar God Mode
+    local function enableGodMode()
+        godModeEnabled = true
+        if godModeLoop then
+            pcall(function() task.cancel(godModeLoop) end)
+        end
+        godModeLoop = task.spawn(function()
+            while godModeEnabled do
+                task.wait(0.1)
                 pcall(function()
                     local hum = o.get_hum()
-                    if hum then hum.MaxHealth = 100 end
+                    if hum then
+                        if hum.MaxHealth < 1e9 then
+                            hum.MaxHealth = 1e9
+                        end
+                        if hum.Health < hum.MaxHealth then
+                            hum.Health = hum.MaxHealth
+                        end
+                        hum:SetAttribute("HasBeenDowned", false)
+                        hum:SetAttribute("IsDead", false)
+                    end
                 end)
-                if A then A:Notify({Title = "❌ God Mode OFF", Duration = 3}) end
             end
+        end)
+    end
+
+    -- Función para desactivar God Mode (Mode Normal)
+    local function disableGodMode()
+        godModeEnabled = false
+        if godModeLoop then
+            pcall(function() task.cancel(godModeLoop) end)
+            godModeLoop = nil
+        end
+        pcall(function()
+            local hum = o.get_hum()
+            if hum then hum.MaxHealth = 100 end
+        end)
+    end
+
+    -- =============================================
+    -- ✅ GUI SEPARADA: Mode Normal / God Mode
+    -- =============================================
+    local modeSelectorGui = nil
+
+    local function closeModeSelector()
+        if modeSelectorGui then
+            pcall(function() modeSelectorGui:Destroy() end)
+            modeSelectorGui = nil
+        end
+        -- Restaurar menú principal de WindUI
+        if A and B then
+            pcall(function()
+                if B.SetVisible then
+                    B:SetVisible(true)
+                elseif B.Toggle then
+                    B:Toggle()
+                end
+            end)
+        end
+    end
+
+    local function openModeSelector()
+        -- Ocultar menú principal de WindUI
+        if A and B then
+            pcall(function()
+                if B.SetVisible then
+                    B:SetVisible(false)
+                end
+            end)
+        end
+
+        -- Eliminar GUI anterior si existe
+        if modeSelectorGui then
+            pcall(function() modeSelectorGui:Destroy() end)
+        end
+
+        -- Crear ScreenGui
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "YupitacticoModeSelector"
+        sg.ResetOnSpawn = false
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+        modeSelectorGui = sg
+
+        -- Fondo semi-transparente que cubre toda la pantalla
+        local bg = Instance.new("Frame")
+        bg.Size = UDim2.new(1, 0, 1, 0)
+        bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        bg.BackgroundTransparency = 0.6
+        bg.BorderSizePixel = 0
+        bg.Parent = sg
+
+        -- Marco central
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 360, 0, 220)
+        frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+        frame.AnchorPoint = Vector2.new(0.5, 0.5)
+        frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+        frame.BorderSizePixel = 0
+        frame.Parent = sg
+
+        local frameCorner = Instance.new("UICorner")
+        frameCorner.CornerRadius = UDim.new(0, 12)
+        frameCorner.Parent = frame
+
+        local frameStroke = Instance.new("UIStroke")
+        frameStroke.Color = Color3.fromRGB(0, 255, 0)
+        frameStroke.Thickness = 2
+        frameStroke.Parent = frame
+
+        -- Título
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -20, 0, 40)
+        title.Position = UDim2.new(0, 10, 0, 10)
+        title.BackgroundTransparency = 1
+        title.Text = "🎯 Selecciona tu Mode"
+        title.TextColor3 = Color3.fromRGB(0, 255, 0)
+        title.TextSize = 22
+        title.Font = Enum.Font.GothamBold
+        title.Parent = frame
+
+        -- Subtítulo
+        local subtitle = Instance.new("TextLabel")
+        subtitle.Size = UDim2.new(1, -20, 0, 20)
+        subtitle.Position = UDim2.new(0, 10, 0, 50)
+        subtitle.BackgroundTransparency = 1
+        subtitle.Text = "Elige una opción - el GUI se cerrará"
+        subtitle.TextColor3 = Color3.fromRGB(180, 180, 180)
+        subtitle.TextSize = 13
+        subtitle.Font = Enum.Font.Gotham
+        subtitle.Parent = frame
+
+        -- Botón MODE NORMAL (gris)
+        local btnNormal = Instance.new("TextButton")
+        btnNormal.Size = UDim2.new(0.45, 0, 0, 70)
+        btnNormal.Position = UDim2.new(0.03, 0, 0, 90)
+        btnNormal.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+        btnNormal.Text = "👤 Mode Normal"
+        btnNormal.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btnNormal.TextSize = 16
+        btnNormal.Font = Enum.Font.GothamBold
+        btnNormal.AutoButtonColor = true
+        btnNormal.Parent = frame
+
+        local c1 = Instance.new("UICorner")
+        c1.CornerRadius = UDim.new(0, 8)
+        c1.Parent = btnNormal
+
+        local s1 = Instance.new("UIStroke")
+        s1.Color = Color3.fromRGB(120, 120, 130)
+        s1.Thickness = 2
+        s1.Parent = btnNormal
+
+        -- Botón GOD MODE (rojo)
+        local btnGod = Instance.new("TextButton")
+        btnGod.Size = UDim2.new(0.45, 0, 0, 70)
+        btnGod.Position = UDim2.new(0.52, 0, 0, 90)
+        btnGod.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
+        btnGod.Text = "❤️ God Mode"
+        btnGod.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btnGod.TextSize = 16
+        btnGod.Font = Enum.Font.GothamBold
+        btnGod.AutoButtonColor = true
+        btnGod.Parent = frame
+
+        local c2 = Instance.new("UICorner")
+        c2.CornerRadius = UDim.new(0, 8)
+        c2.Parent = btnGod
+
+        local s2 = Instance.new("UIStroke")
+        s2.Color = Color3.fromRGB(255, 50, 50)
+        s2.Thickness = 2
+        s2.Parent = btnGod
+
+        -- Estado actual
+        local statusLabel = Instance.new("TextLabel")
+        statusLabel.Size = UDim2.new(1, -20, 0, 25)
+        statusLabel.Position = UDim2.new(0, 10, 0, 175)
+        statusLabel.BackgroundTransparency = 1
+        statusLabel.Text = godModeEnabled and "Estado actual: ❤️ God Mode" or "Estado actual: 👤 Mode Normal"
+        statusLabel.TextColor3 = godModeEnabled and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(180, 180, 180)
+        statusLabel.TextSize = 13
+        statusLabel.Font = Enum.Font.GothamBold
+        statusLabel.Parent = frame
+
+        -- Acción Mode Normal: NO hace nada (solo desactiva god mode si estaba activo)
+        btnNormal.MouseButton1Click:Connect(function()
+            disableGodMode()
+            if A then A:Notify({Title = "👤 Mode Normal", Description = "Sin god mode", Duration = 3}) end
+            task.wait(0.3)
+            closeModeSelector()
+        end)
+
+        -- Acción God Mode: activa god mode
+        btnGod.MouseButton1Click:Connect(function()
+            enableGodMode()
+            if A then A:Notify({Title = "❤️ God Mode ON", Description = "Vida máxima permanente", Duration = 3}) end
+            task.wait(0.3)
+            closeModeSelector()
+        end)
+    end
+
+    local aGodBtn = a1:Button({
+        Title = "🎯 Seleccionar Mode",
+        Desc = "Abre selector: Mode Normal / God Mode",
+        Callback = function()
+            openModeSelector()
         end
     })
-    D:Register("GodMode", aGod)
+    D:Register("GodModeSelector", aGodBtn)
 
     a1:Divider()
 end
@@ -2952,6 +3119,166 @@ local bn = bk:Button({
 })
 D:Register("ClaimAllQuest", bn)
 
+-- =============================================
+-- ✅ AUTO HACK ATMS - Slider Minigame auto-clicker
+-- =============================================
+bk:Divider()
+bk:Section({Title = "Auto Hacks"})
+
+do
+    local ReplicatedStorage2 = game:GetService("ReplicatedStorage")
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    local RunService2 = game:GetService("RunService")
+    
+    local atmAutoEnabled = false
+    local atmRenderConn = nil
+    local atmLastClick = 0
+    local SliderMinigame = nil
+    
+    pcall(function()
+        SliderMinigame = require(ReplicatedStorage2.Modules.Game.Minigames.SliderMinigame)
+    end)
+    
+    local function autoHitATM()
+        pcall(function()
+            if not (SliderMinigame and SliderMinigame.enabled and SliderMinigame.enabled.get()) then
+                return
+            end
+            
+            local needle = SliderMinigame.needle_pos.get()
+            local target = SliderMinigame.target_pos.get()
+            local size = SliderMinigame.target_size.get()
+            
+            local tolerance = (type(size) == "number" and size > 0) and (size / 2) * 0.7 or 0.02
+            
+            if math.abs(needle - target) <= tolerance and tick() - atmLastClick > 0.5 then
+                atmLastClick = tick()
+                local cam = workspace.CurrentCamera
+                local x, y = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+                VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                task.wait(0.03)
+                VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+            end
+        end)
+    end
+    
+    local atmToggle = bk:Toggle({
+        Title = "💳 Auto Hack ATMs",
+        Desc = "Completa el minijuego del cajero automático",
+        Default = false,
+        Callback = function(bx)
+            atmAutoEnabled = bx
+            if atmRenderConn then
+                pcall(function() atmRenderConn:Disconnect() end)
+                atmRenderConn = nil
+            end
+            if bx then
+                atmRenderConn = RunService2.RenderStepped:Connect(function()
+                    if atmAutoEnabled then autoHitATM() end
+                end)
+                if A then A:Notify({Title = "✅ Auto Hack ATMs ON", Description = "Hackeando cajeros", Duration = 3}) end
+            else
+                if A then A:Notify({Title = "❌ Auto Hack ATMs OFF", Duration = 3}) end
+            end
+        end
+    })
+    D:Register("AutoHackATMs", atmToggle)
+end
+
+-- =============================================
+-- ✅ AUTO PESCA - Detecta el minijuego de pesca y completa
+-- =============================================
+do
+    local ReplicatedStorage3 = game:GetService("ReplicatedStorage")
+    local VirtualInputManager2 = game:GetService("VirtualInputManager")
+    local RunService3 = game:GetService("RunService")
+    
+    local fishAutoEnabled = false
+    local fishRenderConn = nil
+    local fishLastClick = 0
+    local FishingMinigame = nil
+    
+    -- Intentar cargar el módulo de pesca
+    pcall(function()
+        FishingMinigame = require(ReplicatedStorage3.Modules.Game.Minigames.FishingMinigame)
+    end)
+    -- También intentar otras rutas comunes
+    if not FishingMinigame then
+        pcall(function()
+            FishingMinigame = require(ReplicatedStorage3.Modules.Game.Fishing.Minigame)
+        end)
+    end
+    if not FishingMinigame then
+        pcall(function()
+            FishingMinigame = require(ReplicatedStorage3.Modules.Game.Fish.Minigame)
+        end)
+    end
+    
+    local function autoFish()
+        pcall(function()
+            if not FishingMinigame then return end
+            
+            -- Verificar si el minijuego está activo
+            local isActive = false
+            pcall(function()
+                if FishingMinigame.enabled and FishingMinigame.enabled.get then
+                    isActive = FishingMinigame.enabled.get()
+                elseif FishingMinigame.is_active and FishingMinigame.is_active.get then
+                    isActive = FishingMinigame.is_active.get()
+                elseif FishingMinigame.active and FishingMinigame.active.get then
+                    isActive = FishingMinigame.active.get()
+                end
+            end)
+            if not isActive then return end
+            
+            -- Obtener posiciones de la aguja y el objetivo
+            local needle, target, size
+            pcall(function()
+                needle = FishingMinigame.needle_pos and FishingMinigame.needle_pos.get() or 0
+                target = FishingMinigame.target_pos and FishingMinigame.target_pos.get() or 0.5
+                size = FishingMinigame.target_size and FishingMinigame.target_size.get() or 0.1
+            end)
+            
+            if type(needle) ~= "number" then needle = 0 end
+            if type(target) ~= "number" then target = 0.5 end
+            if type(size) ~= "number" then size = 0.1 end
+            
+            local tolerance = (size > 0) and (size / 2) * 0.8 or 0.05
+            
+            if math.abs(needle - target) <= tolerance and tick() - fishLastClick > 0.3 then
+                fishLastClick = tick()
+                local cam = workspace.CurrentCamera
+                local x, y = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+                VirtualInputManager2:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                task.wait(0.03)
+                VirtualInputManager2:SendMouseButtonEvent(x, y, 0, false, game, 0)
+            end
+        end)
+    end
+    
+    local fishToggle = bk:Toggle({
+        Title = "🎣 Auto Pesca",
+        Desc = "Completa el minijuego de pesca automático",
+        Default = false,
+        Callback = function(bx)
+            fishAutoEnabled = bx
+            if fishRenderConn then
+                pcall(function() fishRenderConn:Disconnect() end)
+                fishRenderConn = nil
+            end
+            if bx then
+                fishRenderConn = RunService3.RenderStepped:Connect(function()
+                    if fishAutoEnabled then autoFish() end
+                end)
+                if A then A:Notify({Title = "✅ Auto Pesca ON", Description = "Pescando automáticamente", Duration = 3}) end
+            else
+                if A then A:Notify({Title = "❌ Auto Pesca OFF", Duration = 3}) end
+            end
+        end
+    })
+    D:Register("AutoPesca", fishToggle)
+end
+
 local bo = D.Save
 local bp = D.Delete
 local bq = D.Load
@@ -3222,20 +3549,20 @@ b.RenderStepped:Connect(function()
             bB.highlight = bC
         end
         
-        -- ✅ Crear BillboardGui con imagen + nombre (imagen más grande)
+        -- ✅ Crear BillboardGui con imagen + nombre (mismo tamaño)
         if not bB.billboard or not bB.billboard.Parent then
             local bImgGui = Instance.new("BillboardGui")
             bImgGui.Name = "ItemESPImage"
             bImgGui.Adornee = bA:FindFirstChild("PickUpZone") or bA.PrimaryPart or bA:FindFirstChildWhichIsA("BasePart")
-            bImgGui.Size = UDim2.new(0, 110, 0, 145)
+            bImgGui.Size = UDim2.new(0, 100, 0, 70)
             bImgGui.StudsOffset = Vector3.new(0, 2, 0)
             bImgGui.AlwaysOnTop = true
             bImgGui.LightInfluence = 0
             bImgGui.Parent = bA
             
-            -- ✅ Imagen GRANDE (90x90) - más grande que el nombre
+            -- ✅ Imagen PEQUEÑA (40x40) - mismo tamaño aproximado que el nombre
             local bImg = Instance.new("ImageLabel")
-            bImg.Size = UDim2.new(0, 90, 0, 90)
+            bImg.Size = UDim2.new(0, 40, 0, 40)
             bImg.Position = UDim2.new(0.5, 0, 0, 0)
             bImg.AnchorPoint = Vector2.new(0.5, 0)
             bImg.BackgroundTransparency = 1
@@ -3243,17 +3570,17 @@ b.RenderStepped:Connect(function()
             bImg.Parent = bImgGui
             
             local bImgCorner = Instance.new("UICorner")
-            bImgCorner.CornerRadius = UDim.new(0, 8)
+            bImgCorner.CornerRadius = UDim.new(0, 6)
             bImgCorner.Parent = bImg
             
             local bImgStroke = Instance.new("UIStroke")
             bImgStroke.Thickness = 2
             bImgStroke.Parent = bImg
             
-            -- ✅ Nombre PEQUEÑO debajo de la imagen
+            -- ✅ Nombre debajo de la imagen (mismo ancho)
             local bNameLabel = Instance.new("TextLabel")
             bNameLabel.Size = UDim2.new(0, 100, 0, 18)
-            bNameLabel.Position = UDim2.new(0.5, 0, 0, 95)
+            bNameLabel.Position = UDim2.new(0.5, 0, 0, 42)
             bNameLabel.AnchorPoint = Vector2.new(0.5, 0)
             bNameLabel.BackgroundTransparency = 1
             bNameLabel.Text = bA.Name
@@ -3270,8 +3597,8 @@ b.RenderStepped:Connect(function()
             
             -- ✅ Cantidad (opcional)
             local bAmountLabel = Instance.new("TextLabel")
-            bAmountLabel.Size = UDim2.new(0, 100, 0, 16)
-            bAmountLabel.Position = UDim2.new(0.5, 0, 0, 115)
+            bAmountLabel.Size = UDim2.new(0, 100, 0, 14)
+            bAmountLabel.Position = UDim2.new(0.5, 0, 0, 58)
             bAmountLabel.AnchorPoint = Vector2.new(0.5, 0)
             bAmountLabel.BackgroundTransparency = 1
             bAmountLabel.Text = ""
@@ -3286,7 +3613,7 @@ b.RenderStepped:Connect(function()
             bB.nameLabel = bNameLabel
             bB.amountLabel = bAmountLabel
         end
-        
+
         local bC, bD = bw:WorldToViewportPoint(bA.PickUpZone.Position)
         if bD then
             local bE = getRarityColor(bA)
@@ -3695,13 +4022,15 @@ task.wait(1)
 print("🎯 Yupitactico v3.1.4 - Todos los cambios aplicados!")
 print("📍 Silent Aim: Random Head/Torso cada 3s (8 hits) + Dropdown Head and Torso/Random")
 print("🎒 ESP Inventario: Actualización cada 10s")
-print("🖼️ ESP Items: Imagen + Nombre (imagen más grande)")
+print("🖼️ ESP Items: Imagen + Nombre (mismo tamaño)")
 print("🚪 Doors: Eliminar puertas (mapa + carros)")
 print("🛡️ Anti Bump: Snap x2 cuando HP > 40")
-print("❤️ God Mode: Vida máxima permanente")
+print("❤️ God Mode: GUI separada Mode Normal / God Mode")
 print("🚗 Car Guard: Bloquea 'crashed_car' (carro no se destruye)")
 print("💥 Bump Aura Car: Repela carros enemigos cercanos")
 print("💾 Save Car: Trae tu carro si se aleja >60 studs")
+print("💳 Auto Hack ATMs: Completa minijuego SliderMinigame")
+print("🎣 Auto Pesca: Completa minijuego de pesca")
 print("🎨 Tracer: Color Cambiante (Rainbow)")
 print("⚪ FOV: Blanco")
 print("🟢 Tag: 3.1.4 Verde")
