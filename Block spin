@@ -1831,6 +1831,32 @@ local aO = aN:Toggle({
 })
 D:Register("SilentAim", aO)
 
+-- ✅ Selección de objetivo Silent Aim (ambas opciones hacen random switching cada 3s)
+local SilentAimSelectionValue = "Random"
+local aSelection
+pcall(function()
+    aSelection = aN:Dropdown({
+        Title = "Target Selection",
+        Desc = "Head and Torso / Random (ambos cambian cada 3s)",
+        Values = {"Head and Torso", "Random"},
+        Value = "Random",
+        Callback = function(val)
+            SilentAimSelectionValue = val or "Random"
+            -- ✅ Ambas opciones hacen el mismo comportamiento: random switching cada 3s
+            -- Reiniciar random pick inmediatamente
+            if math.random() > 0.5 then
+                SilentAimTargetPart = "head"
+            else
+                SilentAimTargetPart = "torso"
+            end
+            if A then
+                A:Notify({Title = "✅ Target: " .. SilentAimSelectionValue, Description = "Cambia entre Head/Torso cada 3s", Duration = 2})
+            end
+        end
+    })
+    D:Register("SilentAimTargetSelection", aSelection)
+end)
+
 local aP = aN:Toggle({
     Title = "Red Line Lock",
     Default = false,
@@ -2518,6 +2544,66 @@ local be = a1:Slider({
 D:Register("SnapHeight", be)
 
 -- =============================================
+-- ✅ Anti Bump: Si HP > 40, hace snap 2 veces y se desactiva
+-- =============================================
+a1:Divider()
+a1:Section({Title = "Anti Bump"})
+
+local antiBumpEnabled = false
+local antiBumpLoop = nil
+
+local function doAntiBumpSnap()
+    if not u then return end
+    -- Snap 1
+    Z = u.Position.Y
+    V = true
+    performTeleport()
+    task.wait(0.15)
+    -- Snap 2
+    performTeleport()
+    task.wait(0.15)
+    -- Desactivar automáticamente
+    V = false
+    X = nil
+    Z = nil
+end
+
+local aBump = a1:Toggle({
+    Title = "Anti Bump",
+    Desc = "Si HP > 40, hace snap 2 veces y se desactiva",
+    Default = false,
+    Callback = function(bx)
+        antiBumpEnabled = bx
+        if antiBumpLoop then
+            pcall(function() task.cancel(antiBumpLoop) end)
+            antiBumpLoop = nil
+        end
+        if bx then
+            antiBumpLoop = task.spawn(function()
+                while antiBumpEnabled do
+                    task.wait(0.3)
+                    local hum = o.get_hum()
+                    if hum and hum.Health > 40 then
+                        -- Verificar que NO esté en snap manual activo (no interferir con Snap Under Map)
+                        if not W then
+                            pcall(doAntiBumpSnap)
+                            -- Esperar un poco antes de otra verificación para no spam
+                            task.wait(1.5)
+                        end
+                    end
+                end
+            end)
+            if A then A:Notify({Title = "✅ Anti Bump ON", Description = "HP > 40 → Snap x2", Duration = 3}) end
+        else
+            if A then A:Notify({Title = "❌ Anti Bump OFF", Duration = 3}) end
+        end
+    end
+})
+D:Register("AntiBump", aBump)
+
+a1:Divider()
+
+-- =============================================
 -- PLAYER TAB
 -- =============================================
 local bf = B:Tab({Title = "PLAYER:", Icon = "person-standing"})
@@ -2580,6 +2666,92 @@ bk:Button({
             if A then A:Notify({Title = "✅ Copied!", Description = "Place ID: " .. bl, Duration = 3}) end
         else
             if A then A:Notify({Title = "❌ Error", Description = "setclipboard not supported", Duration = 3}) end
+        end
+    end
+})
+
+bk:Divider()
+
+-- =============================================
+-- ✅ Eliminar puertas (puertas normales + puertas de carros)
+-- =============================================
+bk:Section({Title = "Doors"})
+
+local doorRemoverConnection
+local doorRemoverActive = false
+
+local function isDoor(bx)
+    if not bx or not bx:IsA("BasePart") then return false end
+    local by = string.lower(bx.Name)
+    -- Patrones comunes de puertas normales y de vehículos
+    if by == "door" or by == "doors" or by == "gate" then return true end
+    if string.find(by, "door") then return true end
+    -- Puertas de carros: DoorLF, DoorRF, DoorLR, DoorRR, DoorFL, DoorFR, etc.
+    if string.match(by, "^door[lr][fr]$") then return true end
+    if string.match(by, "^door[flr]+$") then return true end
+    -- Trunk/Hood a veces cuentan como puertas de carro
+    if by == "trunk" or by == "hood" or by == "hooddoor" or by == "trunkdoor" then return true end
+    return false
+end
+
+local function removeDoor(bx)
+    if isDoor(bx) then
+        pcall(function()
+            bx.CanCollide = false
+            bx.Transparency = 1
+            bx.CanQuery = false
+            bx:Destroy()
+        end)
+        return true
+    end
+    return false
+end
+
+local function removeAllDoors()
+    local removed = 0
+    -- Buscar en todo el workspace
+    for _, by in ipairs(g:GetDescendants()) do
+        if isDoor(by) then
+            if removeDoor(by) then removed = removed + 1 end
+        end
+    end
+    return removed
+end
+
+bk:Button({
+    Title = "🚪 Remove All Doors",
+    Desc = "Elimina puertas del mapa y de carros (1 vez)",
+    Callback = function()
+        local removed = removeAllDoors()
+        if A then
+            A:Notify({Title = "🚪 Puertas Eliminadas", Description = "Removidas: " .. tostring(removed), Duration = 3})
+        end
+    end
+})
+
+bk:Toggle({
+    Title = "🚪 Auto Remove Doors",
+    Desc = "Elimina puertas nuevas automáticamente",
+    Default = false,
+    Callback = function(bx)
+        doorRemoverActive = bx
+        if doorRemoverConnection then
+            pcall(function() doorRemoverConnection:Disconnect() end)
+            doorRemoverConnection = nil
+        end
+        if bx then
+            -- Eliminar todas las puertas existentes primero
+            removeAllDoors()
+            -- Escuchar puertas nuevas que se agreguen al workspace
+            doorRemoverConnection = g.DescendantAdded:Connect(function(by)
+                if doorRemoverActive and isDoor(by) then
+                    task.wait(0.1)
+                    removeDoor(by)
+                end
+            end)
+            if A then A:Notify({Title = "✅ Auto Remove Doors ON", Description = "Puertas nuevas se eliminarán", Duration = 3}) end
+        else
+            if A then A:Notify({Title = "❌ Auto Remove Doors OFF", Duration = 3}) end
         end
     end
 })
@@ -2873,6 +3045,22 @@ local bw
 repeat task.wait() until workspace.CurrentCamera
 bw = workspace.CurrentCamera
 
+-- ✅ Función para obtener la imagen del item desde Items folder
+local function getItemImage(bx)
+    if not bx then return "rbxassetid://7072725737" end
+    -- Buscar en todas las carpetas de Items
+    for by, bz in ipairs(p:GetChildren()) do
+        if bz:IsA("Folder") then
+            local bA = bz:FindFirstChild(bx.Name)
+            if bA and bA:IsA("Tool") then
+                local bB = bA:GetAttribute("ImageId")
+                if bB and bB ~= "" then return bB end
+            end
+        end
+    end
+    return "rbxassetid://7072725737"
+end
+
 local function getRarityColor(bx)
     if bx.Name == "Money" then return Color3.fromRGB(0, 255, 0) end
     
@@ -2897,6 +3085,7 @@ local function cleanupItemDrawings()
             if by.name then pcall(function() by.name:Remove() end) end
             if by.amount then pcall(function() by.amount:Remove() end) end
             if by.highlight then pcall(function() by.highlight:Destroy() end) end
+            if by.billboard then pcall(function() by.billboard:Destroy() end) end
             w[bx] = nil
         end
     end
@@ -2916,6 +3105,7 @@ b.RenderStepped:Connect(function()
         bz.name.Visible = false
         bz.amount.Visible = false
         if bz.highlight then bz.highlight.Enabled = false end
+        if bz.billboard then bz.billboard.Enabled = false end
     end
     
     local by = {}
@@ -2971,6 +3161,71 @@ b.RenderStepped:Connect(function()
             bB.highlight = bC
         end
         
+        -- ✅ Crear BillboardGui con imagen + nombre (imagen más grande)
+        if not bB.billboard or not bB.billboard.Parent then
+            local bImgGui = Instance.new("BillboardGui")
+            bImgGui.Name = "ItemESPImage"
+            bImgGui.Adornee = bA:FindFirstChild("PickUpZone") or bA.PrimaryPart or bA:FindFirstChildWhichIsA("BasePart")
+            bImgGui.Size = UDim2.new(0, 110, 0, 145)
+            bImgGui.StudsOffset = Vector3.new(0, 2, 0)
+            bImgGui.AlwaysOnTop = true
+            bImgGui.LightInfluence = 0
+            bImgGui.Parent = bA
+            
+            -- ✅ Imagen GRANDE (90x90) - más grande que el nombre
+            local bImg = Instance.new("ImageLabel")
+            bImg.Size = UDim2.new(0, 90, 0, 90)
+            bImg.Position = UDim2.new(0.5, 0, 0, 0)
+            bImg.AnchorPoint = Vector2.new(0.5, 0)
+            bImg.BackgroundTransparency = 1
+            bImg.Image = getItemImage(bA)
+            bImg.Parent = bImgGui
+            
+            local bImgCorner = Instance.new("UICorner")
+            bImgCorner.CornerRadius = UDim.new(0, 8)
+            bImgCorner.Parent = bImg
+            
+            local bImgStroke = Instance.new("UIStroke")
+            bImgStroke.Thickness = 2
+            bImgStroke.Parent = bImg
+            
+            -- ✅ Nombre PEQUEÑO debajo de la imagen
+            local bNameLabel = Instance.new("TextLabel")
+            bNameLabel.Size = UDim2.new(0, 100, 0, 18)
+            bNameLabel.Position = UDim2.new(0.5, 0, 0, 95)
+            bNameLabel.AnchorPoint = Vector2.new(0.5, 0)
+            bNameLabel.BackgroundTransparency = 1
+            bNameLabel.Text = bA.Name
+            bNameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            bNameLabel.TextScaled = false
+            bNameLabel.TextSize = 11
+            bNameLabel.Font = Enum.Font.GothamBold
+            bNameLabel.Parent = bImgGui
+            
+            local bNameStroke = Instance.new("UIStroke")
+            bNameStroke.Thickness = 1
+            bNameStroke.Color = Color3.fromRGB(0, 0, 0)
+            bNameStroke.Parent = bNameLabel
+            
+            -- ✅ Cantidad (opcional)
+            local bAmountLabel = Instance.new("TextLabel")
+            bAmountLabel.Size = UDim2.new(0, 100, 0, 16)
+            bAmountLabel.Position = UDim2.new(0.5, 0, 0, 115)
+            bAmountLabel.AnchorPoint = Vector2.new(0.5, 0)
+            bAmountLabel.BackgroundTransparency = 1
+            bAmountLabel.Text = ""
+            bAmountLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+            bAmountLabel.TextSize = 10
+            bAmountLabel.Font = Enum.Font.Gotham
+            bAmountLabel.Parent = bImgGui
+            
+            bB.billboard = bImgGui
+            bB.imgLabel = bImg
+            bB.imgStroke = bImgStroke
+            bB.nameLabel = bNameLabel
+            bB.amountLabel = bAmountLabel
+        end
+        
         local bC, bD = bw:WorldToViewportPoint(bA.PickUpZone.Position)
         if bD then
             local bE = getRarityColor(bA)
@@ -2980,6 +3235,16 @@ b.RenderStepped:Connect(function()
                 bB.highlight.FillColor = bE
                 bB.highlight.OutlineColor = bE
                 bB.highlight.Enabled = true
+            end
+            
+            -- ✅ Actualizar colores de imagen + nombre con rarity
+            if bB.imgStroke then bB.imgStroke.Color = bE end
+            if bB.nameLabel then bB.nameLabel.TextColor3 = bE end
+            if bB.billboard then bB.billboard.Enabled = true end
+            if bB.imgLabel then bB.imgLabel.Image = getItemImage(bA) end
+            if bB.amountLabel then
+                local bG = bA:GetAttribute("Amount") or 1
+                bB.amountLabel.Text = bG > 1 and "x" .. tostring(bG) or ""
             end
             
             bB.circle.Position = Vector2.new(bC.X, bC.Y)
@@ -2995,18 +3260,19 @@ b.RenderStepped:Connect(function()
             bB.name.Color = bE
             bB.name.Position = Vector2.new(bC.X, bC.Y - bF - 20)
             bB.name.Text = bA.Name
-            bB.name.Visible = true
+            bB.name.Visible = false -- Oculto porque ya está en el billboard
             
             local bG = bA:GetAttribute("Amount") or 1
             bB.amount.Position = Vector2.new(bC.X, bC.Y + bF + 15)
             bB.amount.Text = bG > 1 and "[" .. tostring(bG) .. "]" or ""
-            bB.amount.Visible = bG > 1
+            bB.amount.Visible = false
         else
             bB.circle.Visible = false
             bB.innerCircle.Visible = false
             bB.name.Visible = false
             bB.amount.Visible = false
             if bB.highlight then bB.highlight.Enabled = false end
+            if bB.billboard then bB.billboard.Enabled = false end
         end
     end
 end)
@@ -3019,6 +3285,7 @@ a.PlayerRemoving:Connect(function(bx)
             pcall(function() bz.name:Remove() end)
             pcall(function() bz.amount:Remove() end)
             pcall(function() if bz.highlight then bz.highlight:Destroy() end end)
+            pcall(function() if bz.billboard then bz.billboard:Destroy() end end)
         end
         w = {}
     end
@@ -3117,6 +3384,186 @@ VehicleTab:Button({
     end
 })
 
+VehicleTab:Divider()
+
+VehicleTab:Section({Title = "Car Guard / Bump Aura"})
+
+-- =============================================
+-- ✅ CAR GUARD (Guarda Car) - Bloquea 'crashed_car'
+-- Evita que tu carro se marque como destruido
+-- =============================================
+local CarGuardEnabled = false
+
+local oldFireServerGuard
+local carGuardHookInstalled = false
+
+local function installCarGuardHook()
+    if carGuardHookInstalled then return end
+    carGuardHookInstalled = true
+    
+    -- Hook global de FireServer
+    pcall(function()
+        local mt = getrawmetatable(game)
+        local oldFS = mt.FireServer or oldFireServerGuard
+        
+        oldFireServerGuard = hookfunction(Instance.new('RemoteEvent').FireServer, newcclosure(function(self, ...)
+            local args = {...}
+            if not checkcaller() and CarGuardEnabled and tostring(self) == 'Send' then
+                for _, v in pairs(args) do
+                    if tostring(v) == 'crashed_car' then
+                        return nil -- Bloquear el crashed_car
+                    end
+                end
+            end
+            return oldFireServerGuard(self, ...)
+        end))
+    end)
+end
+
+-- Hook adicional en el CallRemote local del Yupitactico
+-- (interceptar 'crashed_car' en el send local)
+local function shouldBlockCrashedCar(actionName)
+    if not CarGuardEnabled then return false end
+    if actionName == 'crashed_car' then return true end
+    return false
+end
+
+VehicleTab:Toggle({
+    Title = "🚗 Car Guard",
+    Desc = "Bloquea 'crashed_car' - tu carro no se destruye",
+    Default = false,
+    Callback = function(bx)
+        CarGuardEnabled = bx
+        installCarGuardHook()
+        if bx then
+            if A then A:Notify({Title = "✅ Car Guard ON", Description = "crashed_car bloqueado", Duration = 3}) end
+        else
+            if A then A:Notify({Title = "❌ Car Guard OFF", Duration = 3}) end
+        end
+    end
+})
+
+-- =============================================
+-- ✅ BUMP AURA CAR - Repela carros enemigos cercanos
+-- Empuja cualquier vehículo que se acerque demasiado
+-- =============================================
+local BumpAuraCarEnabled = false
+local bumpAuraLoop = nil
+
+VehicleTab:Toggle({
+    Title = "💥 Bump Aura Car",
+    Desc = "Repela carros cercanos automáticamente",
+    Default = false,
+    Callback = function(bx)
+        BumpAuraCarEnabled = bx
+        if bumpAuraLoop then
+            pcall(function() task.cancel(bumpAuraLoop) end)
+            bumpAuraLoop = nil
+        end
+        if bx then
+            bumpAuraLoop = task.spawn(function()
+                while BumpAuraCarEnabled do
+                    task.wait(0.1)
+                    pcall(function()
+                        local client = game.Players.LocalPlayer
+                        local char = client.Character
+                        if not char then return end
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if not hrp then return end
+                        
+                        local vehicles = workspace:FindFirstChild("Vehicles")
+                        if not vehicles then return end
+                        
+                        for _, vehicle in ipairs(vehicles:GetChildren()) do
+                            if vehicle:IsA("Model") then
+                                -- No tocar tu propio carro
+                                local ownerId = vehicle:GetAttribute("OwnerUserId")
+                                if ownerId ~= client.UserId then
+                                    local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
+                                    if vPart then
+                                        local dist = (vPart.Position - hrp.Position).Magnitude
+                                        if dist < 30 then
+                                            -- Aplicar velocity hacia afuera
+                                            local pushDir = (vPart.Position - hrp.Position).Unit
+                                            vPart.AssemblyLinearVelocity = pushDir * 200 + Vector3.new(0, 50, 0)
+                                            vPart.AssemblyAngularVelocity = Vector3.new(math.random(-20,20), math.random(-20,20), math.random(-20,20))
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                end
+            end)
+            if A then A:Notify({Title = "✅ Bump Aura Car ON", Description = "Repeliendo carros cercanos", Duration = 3}) end
+        else
+            if A then A:Notify({Title = "❌ Bump Aura Car OFF", Duration = 3}) end
+        end
+    end
+})
+
+-- =============================================
+-- ✅ SAVE CAR (Guarda Car) - Snap tu carro a ti si se aleja
+-- =============================================
+local SaveCarEnabled = false
+local saveCarLoop = nil
+
+VehicleTab:Toggle({
+    Title = "💾 Save Car",
+    Desc = "Trae tu carro a ti si se aleja demasiado",
+    Default = false,
+    Callback = function(bx)
+        SaveCarEnabled = bx
+        if saveCarLoop then
+            pcall(function() task.cancel(saveCarLoop) end)
+            saveCarLoop = nil
+        end
+        if bx then
+            saveCarLoop = task.spawn(function()
+                while SaveCarEnabled do
+                    task.wait(1)
+                    pcall(function()
+                        local client = game.Players.LocalPlayer
+                        local char = client.Character
+                        if not char then return end
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if not hrp then return end
+                        
+                        local vehicles = workspace:FindFirstChild("Vehicles")
+                        if not vehicles then return end
+                        
+                        for _, vehicle in ipairs(vehicles:GetChildren()) do
+                            if vehicle:IsA("Model") then
+                                local ownerId = vehicle:GetAttribute("OwnerUserId")
+                                if ownerId == client.UserId then
+                                    local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
+                                    if vPart then
+                                        local dist = (vPart.Position - hrp.Position).Magnitude
+                                        -- Si el carro está a más de 60 studs, lo traemos
+                                        if dist > 60 then
+                                            local offset = CFrame.new(math.random(-5, 5), 3, math.random(-10, -5))
+                                            if vehicle.PrimaryPart then
+                                                vehicle:SetPrimaryPartCFrame(hrp.CFrame * offset)
+                                            else
+                                                vPart.CFrame = hrp.CFrame * offset
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                end
+            end)
+            if A then A:Notify({Title = "✅ Save Car ON", Description = "Traerá tu carro si se aleja", Duration = 3}) end
+        else
+            if A then A:Notify({Title = "❌ Save Car OFF", Duration = 3}) end
+        end
+    end
+})
+
+VehicleTab:Divider()
+
 -- =============================================
 -- BLOCKPIN (✅ Color Verde)
 -- =============================================
@@ -3178,8 +3625,14 @@ pcall(createBlockPin)
 
 task.wait(1)
 print("🎯 Yupitactico v3.1.4 - Todos los cambios aplicados!")
-print("📍 Silent Aim: Random Head/Torso cada 3s (8 hits)")
+print("📍 Silent Aim: Random Head/Torso cada 3s (8 hits) + Dropdown Head and Torso/Random")
 print("🎒 ESP Inventario: Actualización cada 10s")
+print("🖼️ ESP Items: Imagen + Nombre (imagen más grande)")
+print("🚪 Doors: Eliminar puertas (mapa + carros)")
+print("🛡️ Anti Bump: Snap x2 cuando HP > 40")
+print("🚗 Car Guard: Bloquea 'crashed_car' (carro no se destruye)")
+print("💥 Bump Aura Car: Repela carros enemigos cercanos")
+print("💾 Save Car: Trae tu carro si se aleja >60 studs")
 print("🎨 Tracer: Color Cambiante (Rainbow)")
 print("⚪ FOV: Blanco")
 print("🟢 Tag: 3.1.4 Verde")
