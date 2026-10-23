@@ -1646,14 +1646,18 @@ b.Heartbeat:Connect(function()
     pcall(CheckAndPickup)
 end)
 
+-- ✅ FIX: Solo saltar con botón de salto (ButtonA móvil) o Space (PC)
+-- Ya NO salta al tocar la pantalla
 h:BindAction("FlyUp", function(aN, aO, aP)
     if not S then return Enum.ContextActionResult.Pass end
     
     local aQ = false
+    -- ✅ PC: barra espaciadora
     if aP.UserInputType == Enum.UserInputType.Keyboard and aP.KeyCode == Enum.KeyCode.Space then
         aQ = true
     end
-    if aP.UserInputType == Enum.UserInputType.Touch then
+    -- ✅ Móvil: solo el botón de salto (ButtonA), NO cualquier toque en pantalla
+    if aP.UserInputType == Enum.UserInputType.Gamepad1 or aP.KeyCode == Enum.KeyCode.ButtonA then
         aQ = true
     end
     
@@ -1669,7 +1673,7 @@ h:BindAction("FlyUp", function(aN, aO, aP)
     end
     
     return Enum.ContextActionResult.Pass
-end, false, Enum.UserInputType.Touch, Enum.KeyCode.Space)
+end, false, Enum.KeyCode.Space, Enum.KeyCode.ButtonA)
 
 b.RenderStepped:Connect(function(aN)
     if S and T then
@@ -2288,7 +2292,8 @@ local a3 = a1:Slider({
 D:Register("SpeedMultiplier", a3)
 
 local a4 = a1:Toggle({
-    Title = "โดดสูง-ใช้งานไม่ได้❌",
+    Title = "🦘 Jump Power",
+    Desc = "Salta con botón de salto (móvil) o Space (PC). Ya NO salta al tocar pantalla",
     Default = false,
     Callback = function(a4)
         S = a4
@@ -2908,6 +2913,7 @@ do
 
     local doorRemoverConnection
     local doorRemoverActive = false
+    local windowRemoverConnection = nil
 
     local function isDoor(bx)
         if not bx or not bx:IsA("BasePart") then return false end
@@ -2920,16 +2926,45 @@ do
         return false
     end
 
+    -- ✅ Detectar ventanas (windshield, side windows, rear windows, etc.)
+    local function isWindow(bx)
+        if not bx or not bx:IsA("BasePart") then return false end
+        local by = string.lower(bx.Name)
+        -- Nombres comunes de ventanas de carro
+        if by == "window" or by == "windows" or by == "windshield" or by == "windscreen" then return true end
+        if by == "rearwindow" or by == "backwindow" or by == "frontwindow" then return true end
+        -- Ventanas con sufijo L/R/F/B (Left, Right, Front, Back)
+        if string.match(by, "^window[lr]f?$") then return true end
+        if string.match(by, "^window[lr]b$") then return true end
+        if string.match(by, "^windshieldl$") or string.match(by, "^windshieldr$") then return true end
+        if string.match(by, "^window_front$") or string.match(by, "^window_rear$") then return true end
+        if string.match(by, "^window_left$") or string.match(by, "^window_right$") then return true end
+        -- Ventanas de edificios
+        if by == "glass" or by == "windowpane" or by == "glasspane" then return true end
+        -- Cualquier cosa que tenga "window" o "windshield" en el nombre
+        if string.find(by, "window") then return true end
+        if string.find(by, "windshield") then return true end
+        if string.find(by, "windscreen") then return true end
+        return false
+    end
+
+    local function removePart(bx)
+        pcall(function()
+            bx.CanCollide = false
+            bx.Transparency = 1
+            bx.CanQuery = false
+            bx:Destroy()
+        end)
+        return true
+    end
+
     local function removeDoor(bx)
-        if isDoor(bx) then
-            pcall(function()
-                bx.CanCollide = false
-                bx.Transparency = 1
-                bx.CanQuery = false
-                bx:Destroy()
-            end)
-            return true
-        end
+        if isDoor(bx) then return removePart(bx) end
+        return false
+    end
+
+    local function removeWindow(bx)
+        if isWindow(bx) then return removePart(bx) end
         return false
     end
 
@@ -2937,7 +2972,17 @@ do
         local removed = 0
         for _, by in ipairs(g:GetDescendants()) do
             if isDoor(by) then
-                if removeDoor(by) then removed = removed + 1 end
+                if removePart(by) then removed = removed + 1 end
+            end
+        end
+        return removed
+    end
+
+    local function removeAllWindows()
+        local removed = 0
+        for _, by in ipairs(g:GetDescendants()) do
+            if isWindow(by) then
+                if removePart(by) then removed = removed + 1 end
             end
         end
         return removed
@@ -2950,6 +2995,29 @@ do
             local removed = removeAllDoors()
             if A then
                 A:Notify({Title = "🚪 Puertas Eliminadas", Description = "Removidas: " .. tostring(removed), Duration = 3})
+            end
+        end
+    })
+
+    bk:Button({
+        Title = "🪟 Remove All Windows",
+        Desc = "Elimina ventanas del mapa y de carros (1 vez)",
+        Callback = function()
+            local removed = removeAllWindows()
+            if A then
+                A:Notify({Title = "🪟 Ventanas Eliminadas", Description = "Removidas: " .. tostring(removed), Duration = 3})
+            end
+        end
+    })
+
+    bk:Button({
+        Title = "🪟🚪 Remove Doors + Windows",
+        Desc = "Elimina puertas y ventanas (todo a la vez)",
+        Callback = function()
+            local dr = removeAllDoors()
+            local wr = removeAllWindows()
+            if A then
+                A:Notify({Title = "🧹 Limpieza Completa", Description = "Puertas: " .. dr .. " | Ventanas: " .. wr, Duration = 3})
             end
         end
     })
@@ -2969,12 +3037,37 @@ do
                 doorRemoverConnection = g.DescendantAdded:Connect(function(by)
                     if doorRemoverActive and isDoor(by) then
                         task.wait(0.1)
-                        removeDoor(by)
+                        removePart(by)
                     end
                 end)
                 if A then A:Notify({Title = "✅ Auto Remove Doors ON", Description = "Puertas nuevas se eliminarán", Duration = 3}) end
             else
                 if A then A:Notify({Title = "❌ Auto Remove Doors OFF", Duration = 3}) end
+            end
+        end
+    })
+
+    bk:Toggle({
+        Title = "🪟 Auto Remove Windows",
+        Desc = "Elimina ventanas nuevas automáticamente",
+        Default = false,
+        Callback = function(bx)
+            local windowRemoverActive = bx
+            if windowRemoverConnection then
+                pcall(function() windowRemoverConnection:Disconnect() end)
+                windowRemoverConnection = nil
+            end
+            if bx then
+                removeAllWindows()
+                windowRemoverConnection = g.DescendantAdded:Connect(function(by)
+                    if windowRemoverActive and isWindow(by) then
+                        task.wait(0.1)
+                        removePart(by)
+                    end
+                end)
+                if A then A:Notify({Title = "✅ Auto Remove Windows ON", Description = "Ventanas nuevas se eliminarán", Duration = 3}) end
+            else
+                if A then A:Notify({Title = "❌ Auto Remove Windows OFF", Duration = 3}) end
             end
         end
     })
@@ -3737,6 +3830,7 @@ local VehicleTab = B:Tab({Title = "Vehicle", Icon = "car"})
 
 VehicleTab:Section({Title = "Vehicle"})
 
+-- Pull Car Owner (botón existente, mejorado con network ownership)
 VehicleTab:Button({
     Title = "Pull Car Owner",
     Desc = "",
@@ -3751,6 +3845,8 @@ VehicleTab:Button({
             if vehicle:IsA("Model") then
                 local ownerId = vehicle:GetAttribute("OwnerUserId")
                 if ownerId and ownerId == Client.UserId then
+                    -- ✅ Reclamar network ownership
+                    pcall(function() vehicle:SetNetworkOwner(Client) end)
                     local offset = CFrame.new(math.random(-5, 5), 3, math.random(-15, -5))
                     if vehicle.PrimaryPart then
                         vehicle:SetPrimaryPartCFrame(RootPart.CFrame * offset)
@@ -3765,58 +3861,57 @@ VehicleTab:Button({
         end
         
         if A then
-            A:Notify({
-                Title = "Yupitactico",
-                Desc = "Done!",
-                Time = 3
-            })
+            A:Notify({Title = "Yupitactico", Desc = "Done!", Time = 3})
         end
     end
 })
 
 VehicleTab:Divider()
 
-VehicleTab:Section({Title = "Car Guard / Bump Aura"})
+VehicleTab:Section({Title = "Car Guard / God Car / Bump Aura / Save Car / Mods"})
+
+-- =============================================
+-- ✅ Helper: obtener tu carro (claim ownership primero)
+-- =============================================
+local function getMyVehicle()
+    local client = game.Players.LocalPlayer
+    local vehicles = workspace:FindFirstChild("Vehicles")
+    if not vehicles then return nil end
+    for _, vehicle in ipairs(vehicles:GetChildren()) do
+        if vehicle:IsA("Model") then
+            local ownerId = vehicle:GetAttribute("OwnerUserId")
+            if ownerId == client.UserId then
+                -- ✅ Reclamar network ownership del carro
+                pcall(function() vehicle:SetNetworkOwner(client) end)
+                return vehicle
+            end
+        end
+    end
+    return nil
+end
 
 -- =============================================
 -- ✅ CAR GUARD (Guarda Car) - Bloquea 'crashed_car'
--- Evita que tu carro se marque como destruido
 -- =============================================
-do
 local CarGuardEnabled = false
 
-local oldFireServerGuard
-local carGuardHookInstalled = false
-
 local function installCarGuardHook()
-    if carGuardHookInstalled then return end
-    carGuardHookInstalled = true
-    
-    -- Hook global de FireServer
     pcall(function()
-        local mt = getrawmetatable(game)
-        local oldFS = mt.FireServer or oldFireServerGuard
-        
-        oldFireServerGuard = hookfunction(Instance.new('RemoteEvent').FireServer, newcclosure(function(self, ...)
-            local args = {...}
-            if not checkcaller() and CarGuardEnabled and tostring(self) == 'Send' then
-                for _, v in pairs(args) do
-                    if tostring(v) == 'crashed_car' then
-                        return nil -- Bloquear el crashed_car
+        if not installCarGuardHook.installed then
+            installCarGuardHook.installed = true
+            local oldFS = hookfunction(Instance.new('RemoteEvent').FireServer, newcclosure(function(self, ...)
+                local args = {...}
+                if not checkcaller() and CarGuardEnabled and tostring(self) == 'Send' then
+                    for _, v in pairs(args) do
+                        if tostring(v) == 'crashed_car' then
+                            return nil
+                        end
                     end
                 end
-            end
-            return oldFireServerGuard(self, ...)
-        end))
+                return oldFS(self, ...)
+            end))
+        end
     end)
-end
-
--- Hook adicional en el CallRemote local del Yupitactico
--- (interceptar 'crashed_car' en el send local)
-local function shouldBlockCrashedCar(actionName)
-    if not CarGuardEnabled then return false end
-    if actionName == 'crashed_car' then return true end
-    return false
 end
 
 VehicleTab:Toggle({
@@ -3835,15 +3930,83 @@ VehicleTab:Toggle({
 })
 
 -- =============================================
--- ✅ BUMP AURA CAR - Repela carros enemigos cercanos
--- Empuja cualquier vehículo que se acerque demasiado
+-- ✅ GOD CAR - El carro NO se rompe al chocar
+-- Desactiva todos los efectos de daño/crash en el carro
+-- =============================================
+local GodCarEnabled = false
+local godCarLoop = nil
+
+VehicleTab:Toggle({
+    Title = "🛡️ God Car",
+    Desc = "El carro NO se rompe al chocar cosas",
+    Default = false,
+    Callback = function(bx)
+        GodCarEnabled = bx
+        -- Activar Car Guard automáticamente también
+        CarGuardEnabled = bx
+        installCarGuardHook()
+        
+        if godCarLoop then
+            pcall(function() task.cancel(godCarLoop) end)
+            godCarLoop = nil
+        end
+        if bx then
+            godCarLoop = task.spawn(function()
+                while GodCarEnabled do
+                    task.wait(0.2)
+                    pcall(function()
+                        local vehicle = getMyVehicle()
+                        if not vehicle then return end
+                        
+                        -- ✅ Restaurar atributos del carro a estado saludable
+                        vehicle:SetAttribute("Health", 100)
+                        vehicle:SetAttribute("Crashed", false)
+                        vehicle:SetAttribute("Damaged", false)
+                        vehicle:SetAttribute("Destroyed", false)
+                        vehicle:SetAttribute("IsCrashed", false)
+                        
+                        -- ✅ Re-activar todas las partes del carro (no partes rotas)
+                        for _, part in ipairs(vehicle:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                -- Re-activar CanCollide si estaba desactivado por daño
+                                if part:GetAttribute("Breakable") ~= false then
+                                    part.CanCollide = true
+                                end
+                                -- Restaurar transparencia si era 1 (roto/oculto)
+                                if part.Transparency == 1 and part.Name ~= "HumanoidRootPart" then
+                                    -- No tocar partes que originalmente son invisibles
+                                    pcall(function()
+                                        if part:GetAttribute("OriginalTransparency") then
+                                            part.Transparency = part:GetAttribute("OriginalTransparency")
+                                        end
+                                    end)
+                                end
+                            end
+                            -- Restaurar partes Weld que se puedan haber roto
+                            if part:IsA("Weld") or part:IsA("WeldConstraint") or part:IsA("Motor6D") then
+                                pcall(function() part.Enabled = true end)
+                            end
+                        end
+                    end)
+                end
+            end)
+            if A then A:Notify({Title = "✅ God Car ON", Description = "Carro inmune a choques", Duration = 3}) end
+        else
+            if A then A:Notify({Title = "❌ God Car OFF", Duration = 3}) end
+        end
+    end
+})
+
+-- =============================================
+-- ✅ BUMP AURA CAR (FIXED) - Repela carros enemigos cercanos
+-- Issue anterior: no reclamabas network ownership, por eso no funcionaba
 -- =============================================
 local BumpAuraCarEnabled = false
 local bumpAuraLoop = nil
 
 VehicleTab:Toggle({
     Title = "💥 Bump Aura Car",
-    Desc = "Repela carros cercanos automáticamente",
+    Desc = "Repela carros enemigos cercanos (FIXED)",
     Default = false,
     Callback = function(bx)
         BumpAuraCarEnabled = bx
@@ -3867,17 +4030,45 @@ VehicleTab:Toggle({
                         
                         for _, vehicle in ipairs(vehicles:GetChildren()) do
                             if vehicle:IsA("Model") then
-                                -- No tocar tu propio carro
                                 local ownerId = vehicle:GetAttribute("OwnerUserId")
+                                -- Solo afectar carros que NO son tuyos
                                 if ownerId ~= client.UserId then
+                                    -- ✅ FIX: Reclamar network ownership del vehículo enemigo
+                                    pcall(function() vehicle:SetNetworkOwner(client) end)
+                                    
                                     local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
                                     if vPart then
                                         local dist = (vPart.Position - hrp.Position).Magnitude
-                                        if dist < 30 then
-                                            -- Aplicar velocity hacia afuera
+                                        if dist < 35 then
+                                            -- ✅ Aplicar fuerza con BodyVelocity (más fiable que AssemblyLinearVelocity)
                                             local pushDir = (vPart.Position - hrp.Position).Unit
-                                            vPart.AssemblyLinearVelocity = pushDir * 200 + Vector3.new(0, 50, 0)
-                                            vPart.AssemblyAngularVelocity = Vector3.new(math.random(-20,20), math.random(-20,20), math.random(-20,20))
+                                            if pushDir.Magnitude > 0 then
+                                                -- Eliminar BodyVelocity anterior si existe
+                                                local oldBV = vPart:FindFirstChild("BumpAuraBV")
+                                                if oldBV then oldBV:Destroy() end
+                                                
+                                                local bv = Instance.new("BodyVelocity")
+                                                bv.Name = "BumpAuraBV"
+                                                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                                                bv.Velocity = pushDir * 250 + Vector3.new(0, 80, 0)
+                                                bv.Parent = vPart
+                                                
+                                                -- Aplicar spin
+                                                local oldBG = vPart:FindFirstChild("BumpAuraBG")
+                                                if oldBG then oldBG:Destroy() end
+                                                
+                                                local bg = Instance.new("BodyAngularVelocity")
+                                                bg.Name = "BumpAuraBG"
+                                                bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+                                                bg.AngularVelocity = Vector3.new(math.random(-30,30), math.random(-30,30), math.random(-30,30))
+                                                bg.Parent = vPart
+                                                
+                                                -- Limpiar después de 0.3s
+                                                task.delay(0.3, function()
+                                                    pcall(function() bv:Destroy() end)
+                                                    pcall(function() bg:Destroy() end)
+                                                end)
+                                            end
                                         end
                                     end
                                 end
@@ -3886,7 +4077,7 @@ VehicleTab:Toggle({
                     end)
                 end
             end)
-            if A then A:Notify({Title = "✅ Bump Aura Car ON", Description = "Repeliendo carros cercanos", Duration = 3}) end
+            if A then A:Notify({Title = "✅ Bump Aura Car ON", Description = "Repeliendo carros enemigos", Duration = 3}) end
         else
             if A then A:Notify({Title = "❌ Bump Aura Car OFF", Duration = 3}) end
         end
@@ -3894,14 +4085,15 @@ VehicleTab:Toggle({
 })
 
 -- =============================================
--- ✅ SAVE CAR (Guarda Car) - Snap tu carro a ti si se aleja
+-- ✅ SAVE CAR (FIXED) - Trae tu carro si se aleja
+-- Issue anterior: SetPrimaryPartCFrame falla si no tienes network ownership
 -- =============================================
 local SaveCarEnabled = false
 local saveCarLoop = nil
 
 VehicleTab:Toggle({
     Title = "💾 Save Car",
-    Desc = "Trae tu carro a ti si se aleja demasiado",
+    Desc = "Trae tu carro si se aleja (FIXED)",
     Default = false,
     Callback = function(bx)
         SaveCarEnabled = bx
@@ -3920,41 +4112,168 @@ VehicleTab:Toggle({
                         local hrp = char:FindFirstChild("HumanoidRootPart")
                         if not hrp then return end
                         
-                        local vehicles = workspace:FindFirstChild("Vehicles")
-                        if not vehicles then return end
+                        local vehicle = getMyVehicle()
+                        if not vehicle then return end
                         
-                        for _, vehicle in ipairs(vehicles:GetChildren()) do
-                            if vehicle:IsA("Model") then
-                                local ownerId = vehicle:GetAttribute("OwnerUserId")
-                                if ownerId == client.UserId then
-                                    local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
-                                    if vPart then
-                                        local dist = (vPart.Position - hrp.Position).Magnitude
-                                        -- Si el carro está a más de 60 studs, lo traemos
-                                        if dist > 60 then
-                                            local offset = CFrame.new(math.random(-5, 5), 3, math.random(-10, -5))
-                                            if vehicle.PrimaryPart then
-                                                vehicle:SetPrimaryPartCFrame(hrp.CFrame * offset)
-                                            else
-                                                vPart.CFrame = hrp.CFrame * offset
-                                            end
-                                        end
-                                    end
+                        local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
+                        if not vPart then return end
+                        
+                        local dist = (vPart.Position - hrp.Position).Magnitude
+                        -- Si el carro está a más de 50 studs, lo traemos
+                        if dist > 50 then
+                            -- ✅ FIX: Reclamar ownership (getMyVehicle ya lo hace)
+                            local offset = CFrame.new(math.random(-4, 4), 3, math.random(-10, -5))
+                            -- ✅ FIX: Usar CFrame.new directo en vPart (más fiable que SetPrimaryPartCFrame)
+                            pcall(function()
+                                vPart.CFrame = hrp.CFrame * offset
+                                -- Si el carro tiene PrimaryPart, también forzar
+                                if vehicle.PrimaryPart and vehicle.PrimaryPart ~= vPart then
+                                    vehicle:SetPrimaryPartCFrame(hrp.CFrame * offset)
                                 end
-                            end
+                            end)
                         end
                     end)
                 end
             end)
-            if A then A:Notify({Title = "✅ Save Car ON", Description = "Traerá tu carro si se aleja", Duration = 3}) end
+            if A then A:Notify({Title = "✅ Save Car ON", Description = "Traerá tu carro si se aleja >50 studs", Duration = 3}) end
         else
             if A then A:Notify({Title = "❌ Save Car OFF", Duration = 3}) end
         end
     end
 })
 
+-- =============================================
+-- ✅ MODS CAR - Speed Car slider (1-100)
+-- Cuando mueves, el carro se mueve a esa velocidad
+-- =============================================
 VehicleTab:Divider()
-end -- cierra do del Car Guard / Bump Aura / Save Car
+VehicleTab:Section({Title = "Car Mods / Speed Car"})
+
+local SpeedCarValue = 50
+local SpeedCarEnabled = false
+local speedCarLoop = nil
+
+VehicleTab:Slider({
+    Title = "Speed Car (1-100)",
+    Step = 1,
+    Value = {Min = 1, Max = 100, Default = 50},
+    Callback = function(bx)
+        SpeedCarValue = tonumber(bx) or 50
+    end
+})
+
+VehicleTab:Toggle({
+    Title = "🚀 Speed Car",
+    Desc = "Mueve el carro en todas direcciones con velocidad ajustable",
+    Default = false,
+    Callback = function(bx)
+        SpeedCarEnabled = bx
+        if speedCarLoop then
+            pcall(function() task.cancel(speedCarLoop) end)
+            speedCarLoop = nil
+        end
+        if bx then
+            speedCarLoop = task.spawn(function()
+                local Players = game:GetService("Players")
+                local RunService = game:GetService("RunService")
+                local UserInputService = game:GetService("UserInputService")
+                local client = Players.LocalPlayer
+                
+                -- ✅ Loop principal: aplica velocidad según teclas WASD
+                while SpeedCarEnabled do
+                    task.wait()
+                    pcall(function()
+                        local vehicle = getMyVehicle()
+                        if not vehicle then return end
+                        local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
+                        if not vPart then return end
+                        
+                        -- Calcular vector de movimiento según teclas
+                        local forward = 0
+                        local side = 0
+                        local up = 0
+                        
+                        -- ✅ WASD + Flechas para mover en todas direcciones
+                        if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then
+                            forward = 1
+                        elseif UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down) then
+                            forward = -1
+                        end
+                        
+                        if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then
+                            side = -1
+                        elseif UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then
+                            side = 1
+                        end
+                        
+                        -- Espacio para subir, Shift para bajar
+                        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                            up = 1
+                        elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
+                            up = -1
+                        end
+                        
+                        -- Si hay alguna tecla de movimiento presionada
+                        if forward ~= 0 or side ~= 0 or up ~= 0 then
+                            -- ✅ Multiplicar la velocidad por el valor del slider (1-100)
+                            local speedMultiplier = SpeedCarValue * 3  -- 1=3 speed, 100=300 speed
+                            
+                            -- Calcular dirección en el espacio del carro
+                            local lookDir = vPart.CFrame.LookVector
+                            local rightDir = vPart.CFrame.RightVector
+                            
+                            local moveVector = (lookDir * forward + rightDir * side + Vector3.new(0, up, 0))
+                            if moveVector.Magnitude > 0 then
+                                moveVector = moveVector.Unit * speedMultiplier
+                            end
+                            
+                            -- ✅ Aplicar BodyVelocity para mover el carro
+                            local oldBV = vPart:FindFirstChild("SpeedCarBV")
+                            if oldBV then oldBV:Destroy() end
+                            
+                            local bv = Instance.new("BodyVelocity")
+                            bv.Name = "SpeedCarBV"
+                            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                            bv.Velocity = moveVector
+                            bv.Parent = vPart
+                        else
+                            -- Si no hay teclas, detener BodyVelocity
+                            local oldBV = vPart:FindFirstChild("SpeedCarBV")
+                            if oldBV then
+                                oldBV.Velocity = Vector3.new(0, 0, 0)
+                                -- Quitar después de 0.1s para no acumular
+                                task.delay(0.1, function()
+                                    pcall(function() oldBV:Destroy() end)
+                                end)
+                            end
+                        end
+                    end)
+                end
+                
+                -- Cleanup al desactivar
+                pcall(function()
+                    local vehicle = getMyVehicle()
+                    if vehicle then
+                        local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
+                        if vPart then
+                            local oldBV = vPart:FindFirstChild("SpeedCarBV")
+                            if oldBV then oldBV:Destroy() end
+                        end
+                    end
+                end)
+            end)
+            if A then A:Notify({
+                Title = "✅ Speed Car ON",
+                Description = "Usa WASD/Flechas para mover - Espacio=Subir, Shift=Bajar",
+                Duration = 5
+            }) end
+        else
+            if A then A:Notify({Title = "❌ Speed Car OFF", Duration = 3}) end
+        end
+    end
+})
+
+VehicleTab:Divider()
 end -- cierra do del BUY/VEHICLE tab
 
 -- =============================================
@@ -4023,12 +4342,14 @@ print("🎯 Yupitactico v3.1.4 - Todos los cambios aplicados!")
 print("📍 Silent Aim: Random Head/Torso cada 3s (8 hits) + Dropdown Head and Torso/Random")
 print("🎒 ESP Inventario: Actualización cada 10s")
 print("🖼️ ESP Items: Imagen + Nombre (mismo tamaño)")
-print("🚪 Doors: Eliminar puertas (mapa + carros)")
+print("🚪🪟 Doors + Windows: Eliminar puertas y ventanas (mapa + carros)")
 print("🛡️ Anti Bump: Snap x2 cuando HP > 40")
 print("❤️ God Mode: GUI separada Mode Normal / God Mode")
-print("🚗 Car Guard: Bloquea 'crashed_car' (carro no se destruye)")
-print("💥 Bump Aura Car: Repela carros enemigos cercanos")
-print("💾 Save Car: Trae tu carro si se aleja >60 studs")
+print("🚗 Car Guard: Bloquea 'crashed_car'")
+print("🛡️ God Car: Carro NO se rompe al chocar")
+print("💥 Bump Aura Car: FIXED con network ownership")
+print("💾 Save Car: FIXED con network ownership")
+print("🚀 Speed Car: Slider 1-100 + WASD/Flechas/Espacio/Shift")
 print("💳 Auto Hack ATMs: Completa minijuego SliderMinigame")
 print("🎣 Auto Pesca: Completa minijuego de pesca")
 print("🎨 Tracer: Color Cambiante (Rainbow)")
