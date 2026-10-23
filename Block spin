@@ -38,7 +38,7 @@ end)
 local B
 if A then
     B = A:CreateWindow({
-        Title = "🎯 Yupitactico",
+        Title = "yupitactico I block spin paid 🔪",
         Icon = "",
         Author = "By Yupitactico",
         Folder = "Yupitactico",
@@ -48,6 +48,19 @@ if A then
         Resizable = true,
         KeyCode = Enum.KeyCode.G
     })
+
+    -- ✅ Tema morado con texto azul para el título
+    pcall(function()
+        local WindowTheme = {
+            Accent = Color3.fromRGB(128, 0, 255), -- Morado
+            Text = Color3.fromRGB(0, 120, 255), -- Azul
+            TitleColor = Color3.fromRGB(0, 120, 255), -- Azul (texto del título)
+            TitleBackground = Color3.fromRGB(75, 0, 130), -- Morado (fondo del título)
+        }
+        if type(B.UpdateTheme) == "function" then
+            B:UpdateTheme(WindowTheme)
+        end
+    end)
 
     B:EditOpenButton({
         Title = "🎯 YUPITACTICO",
@@ -143,7 +156,7 @@ local Q = false
 local R = 0.05
 local S = false
 local T = false
-local U = 40
+local U = 50 -- ✅ Altura del salto = 50
 local V = false
 local W = false
 local X
@@ -1648,6 +1661,8 @@ end)
 
 -- ✅ FIX: Solo saltar con botón de salto (ButtonA móvil) o Space (PC)
 -- Ya NO salta al tocar la pantalla
+-- ✅ Altura 50: cuando presionas, aplica velocity Y = 50
+local lastJumpTime = 0
 h:BindAction("FlyUp", function(aN, aO, aP)
     if not S then return Enum.ContextActionResult.Pass end
     
@@ -1664,7 +1679,31 @@ h:BindAction("FlyUp", function(aN, aO, aP)
     if aQ then
         if aO == Enum.UserInputState.Begin then
             T = true
-            t.Jump = true
+            -- ✅ FIX: Aplicar velocity de salto directamente (altura 50)
+            pcall(function()
+                local client = game.Players.LocalPlayer
+                local char = client.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hrp and hum and hum.Health > 0 then
+                        -- Anti-spam: 0.3s entre saltos
+                        if tick() - lastJumpTime > 0.3 then
+                            lastJumpTime = tick()
+                            -- ✅ Saltar aplicando velocity Y = 50
+                            hrp.AssemblyLinearVelocity = Vector3.new(
+                                hrp.AssemblyLinearVelocity.X,
+                                U,
+                                hrp.AssemblyLinearVelocity.Z
+                            )
+                            -- También forzar Jump del humanoid
+                            hum.Jump = true
+                            hum.JumpPower = 50
+                            hum.UseJumpPower = true
+                        end
+                    end
+                end
+            end)
             return Enum.ContextActionResult.Sink
         elseif aO == Enum.UserInputState.End then
             T = false
@@ -2277,7 +2316,7 @@ local a1 = B:Tab({Title = "CHARACTER:", Icon = "user"})
 a1:Section({Title = "CHARACTER:"})
 
 local a2 = a1:Toggle({
-    Title = "วิ่งเร็ว",
+    Title = "Walk Speed",
     Default = false,
     Callback = function(a2) Q = a2 end
 })
@@ -2455,17 +2494,65 @@ D:Register("AntiRagdoll", ba)
 
 local bb = a1:Toggle({
     Title = "Hide Name",
+    Desc = "Hides your name, shows 'yupitactico on top' in rainbow",
     Default = false,
-    Callback = function(bb)
+    Callback = function(state)
         pcall(function()
-            local bc = a.LocalPlayer
-            local bd = bc.Character or bc.CharacterAdded:Wait()
-            local be = bd:WaitForChild("HumanoidRootPart")
-            local bf = be:FindFirstChild("CharacterBillboardGui")
-            if bf then
-                local bg = bf:FindFirstChild("PlayerName")
-                if bg and bg:IsA("TextLabel") then
-                    bg.Visible = not bb
+            local client = a.LocalPlayer
+            local char = client.Character or client.CharacterAdded:Wait()
+            local hrp = char:WaitForChild("HumanoidRootPart")
+            local billboard = hrp:FindFirstChild("CharacterBillboardGui")
+            if not billboard then return end
+            
+            -- Destruir overrides previos
+            if hrp:FindFirstChild("YupitacticoOverride") then
+                hrp.YupitacticoOverride:Destroy()
+            end
+            
+            if state then
+                -- ✅ Ocultar nombre original
+                local nameLabel = billboard:FindFirstChild("PlayerName")
+                if nameLabel and nameLabel:IsA("TextLabel") then
+                    nameLabel.Visible = false
+                end
+                
+                -- ✅ Crear override "yupitactico on top" en rainbow
+                local override = Instance.new("BillboardGui")
+                override.Name = "YupitacticoOverride"
+                override.Adornee = hrp
+                override.Size = UDim2.new(0, 200, 0, 30)
+                override.StudsOffset = Vector3.new(0, 3, 0)
+                override.AlwaysOnTop = true
+                override.Parent = hrp
+                
+                local rainbowLabel = Instance.new("TextLabel")
+                rainbowLabel.Size = UDim2.new(1, 0, 1, 0)
+                rainbowLabel.BackgroundTransparency = 1
+                rainbowLabel.Text = "yupitactico on top"
+                rainbowLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+                rainbowLabel.TextScaled = true
+                rainbowLabel.Font = Enum.Font.GothamBold
+                rainbowLabel.Parent = override
+                
+                local stroke = Instance.new("UIStroke")
+                stroke.Thickness = 1.5
+                stroke.Color = Color3.new(0, 0, 0)
+                stroke.Parent = rainbowLabel
+                
+                -- ✅ Loop rainbow
+                task.spawn(function()
+                    local hue = 0
+                    while override and override.Parent do
+                        hue = (hue + 0.01) % 1
+                        rainbowLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
+                        task.wait(0.03)
+                    end
+                end)
+            else
+                -- Restaurar nombre original
+                local nameLabel = billboard:FindFirstChild("PlayerName")
+                if nameLabel and nameLabel:IsA("TextLabel") then
+                    nameLabel.Visible = true
                 end
             end
         end)
@@ -2610,6 +2697,83 @@ do
         end
     })
     D:Register("AntiBump", aBump)
+
+    -- =============================================
+    -- ✅ ANTI AIM BETA - Rota el personaje automáticamente en todas direcciones
+    -- La cámara se mueve normal (no se ve afectada)
+    -- =============================================
+    a1:Divider()
+    a1:Section({Title = "Anti Aim Beta"})
+
+    do
+        local antiAimEnabled = false
+        local antiAimLoop = nil
+        local antiAimSpin = 0
+
+        local aAntiAim = a1:Toggle({
+            Title = "🔄 Anti Aim Beta",
+            Desc = "Rotates character automatically. Camera moves normally.",
+            Default = false,
+            Callback = function(state)
+                antiAimEnabled = state
+                if antiAimLoop then
+                    pcall(function() task.cancel(antiAimLoop) end)
+                    antiAimLoop = nil
+                end
+                if state then
+                    antiAimLoop = task.spawn(function()
+                        local RunService = game:GetService("RunService")
+                        local client = game.Players.LocalPlayer
+                        local cycle = 0
+                        
+                        while antiAimEnabled do
+                            task.wait(0.05)
+                            cycle = cycle + 1
+                            pcall(function()
+                                local char = client.Character
+                                if not char then return end
+                                local hrp = char:FindFirstChild("HumanoidRootPart")
+                                local hum = char:FindFirstChildOfClass("Humanoid")
+                                if not hrp or not hum or hum.Health <= 0 then return end
+                                
+                                -- ✅ CÁLCULO: rotación cicla entre 4 direcciones (Front, Right, Back, Left)
+                                -- El personaje rota pero la cámara NO se afecta
+                                local phase = cycle % 16  -- 16 ciclos por dirección
+                                local angle
+                                if phase < 4 then
+                                    angle = 0  -- Front
+                                elseif phase < 8 then
+                                    angle = math.rad(90)  -- Right
+                                elseif phase < 12 then
+                                    angle = math.rad(180)  -- Back
+                                else
+                                    angle = math.rad(270)  -- Left
+                                end
+                                
+                                -- ✅ Smooth interpolation entre ángulos
+                                local targetCFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, angle, 0)
+                                local currentCFrame = hrp.CFrame
+                                -- Mantener posición pero cambiar rotación Y
+                                local smoothAngle = currentCFrame.Rotation:Lerp(targetCFrame.Rotation, 0.4)
+                                
+                                -- ✅ FIX: Aplicar rotación al HRP pero NO tocar AutoRotate=true
+                                -- Esto permite que el humanoid rote pero la cámara del jugador queda libre
+                                hrp.CFrame = CFrame.new(hrp.Position) * smoothAngle
+                            end)
+                        end
+                    end)
+                    if A then A:Notify({
+                        Title = "✅ Anti Aim Beta ON",
+                        Description = "Character rotating automatically. Camera is free.",
+                        Duration = 4
+                    }) end
+                else
+                    if A then A:Notify({Title = "❌ Anti Aim Beta OFF", Duration = 3}) end
+                end
+            end
+        })
+        D:Register("AntiAimBeta", aAntiAim)
+    end
 
     -- ✅ GOD MODE con GUI SEPARADA: botón que abre selector
     a1:Divider()
@@ -2849,7 +3013,7 @@ bh.CanCollide = false
 bh.Transparency = 1
 
 local bi = bf:Toggle({
-    Title = "Auto Finnish",
+    Title = "Auto Finish",
     Default = false,
     Callback = function(bi)
         ad = bi
@@ -4143,8 +4307,7 @@ VehicleTab:Toggle({
 })
 
 -- =============================================
--- ✅ MODS CAR - Speed Car slider (1-100)
--- Cuando mueves, el carro se mueve a esa velocidad
+-- ✅ MODS CAR - Speed Car slider + Joystick visual (tipo flecha como imagen)
 -- =============================================
 VehicleTab:Divider()
 VehicleTab:Section({Title = "Car Mods / Speed Car"})
@@ -4152,6 +4315,11 @@ VehicleTab:Section({Title = "Car Mods / Speed Car"})
 local SpeedCarValue = 50
 local SpeedCarEnabled = false
 local speedCarLoop = nil
+local speedCarJoystickGui = nil
+-- Estado del joystick: dirección activa (-1=backward, 0=none, 1=forward, etc.)
+local speedCarForward = 0
+local speedCarSide = 0
+local speedCarUp = 0
 
 VehicleTab:Slider({
     Title = "Speed Car (1-100)",
@@ -4162,9 +4330,157 @@ VehicleTab:Slider({
     end
 })
 
+-- =============================================
+-- ✅ Crear joystick visual (cruz direccional tipo la imagen)
+-- =============================================
+local function createSpeedCarJoystick()
+    if speedCarJoystickGui then return end
+    
+    local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+    local PlayerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+    local parent = CoreGui or PlayerGui
+    
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "YupitacticoSpeedCarJoystick"
+    sg.ResetOnSpawn = false
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    sg.Parent = parent
+    speedCarJoystickGui = sg
+    
+    -- ✅ Contenedor principal (abajo a la izquierda)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(0, 200, 0, 200)
+    container.Position = UDim2.new(0, 30, 1, -230)
+    container.BackgroundTransparency = 1
+    container.Parent = sg
+    
+    -- ✅ Título encima
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 20)
+    title.Position = UDim2.new(0, 0, 0, -22)
+    title.BackgroundTransparency = 1
+    title.Text = "Speed Car - " .. SpeedCarValue
+    title.TextColor3 = Color3.fromRGB(0, 255, 0)
+    title.TextSize = 14
+    title.Font = Enum.Font.GothamBold
+    title.Parent = container
+    
+    -- ✅ Cruz direccional: 4 botones en cruz + centro
+    local buttonSize = 60
+    local center = 70  -- centro del área 200x200
+    
+    -- Helper: crear botón direccional
+    local function makeArrowButton(name, text, posX, posY, color)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(0, buttonSize, 0, buttonSize)
+        btn.Position = UDim2.new(0, posX, 0, posY)
+        btn.BackgroundColor3 = color
+        btn.BackgroundTransparency = 0.3
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 28
+        btn.Font = Enum.Font.GothamBold
+        btn.AutoButtonColor = true
+        btn.Parent = container
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 12)
+        corner.Parent = btn
+        
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(0, 255, 0)
+        stroke.Thickness = 2
+        stroke.Parent = btn
+        
+        return btn
+    end
+    
+    -- ✅ Botón ARRIBA (Front - Forward)
+    local btnUp = makeArrowButton("BtnUp", "▲", center - buttonSize/2, 0, Color3.fromRGB(50, 80, 50))
+    -- ✅ Botón ABAJO (Back - Backward)
+    local btnDown = makeArrowButton("BtnDown", "▼", center - buttonSize/2, 140, Color3.fromRGB(80, 50, 50))
+    -- ✅ Botón IZQUIERDA
+    local btnLeft = makeArrowButton("BtnLeft", "◀", 0, center - buttonSize/2, Color3.fromRGB(50, 50, 80))
+    -- ✅ Botón DERECHA
+    local btnRight = makeArrowButton("BtnRight", "▶", 140, center - buttonSize/2, Color3.fromRGB(50, 50, 80))
+    
+    -- ✅ Botón UP (Subir)
+    local btnUpFly = Instance.new("TextButton")
+    btnUpFly.Size = UDim2.new(0, 50, 0, 50)
+    btnUpFly.Position = UDim2.new(1, -55, 0, -10)
+    btnUpFly.BackgroundColor3 = Color3.fromRGB(50, 80, 100)
+    btnUpFly.BackgroundTransparency = 0.3
+    btnUpFly.Text = "⬆"
+    btnUpFly.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnUpFly.TextSize = 22
+    btnUpFly.Font = Enum.Font.GothamBold
+    btnUpFly.Parent = sg
+    
+    local c5 = Instance.new("UICorner")
+    c5.CornerRadius = UDim.new(0, 10)
+    c5.Parent = btnUpFly
+    
+    -- ✅ Botón DOWN (Bajar)
+    local btnDownFly = Instance.new("TextButton")
+    btnDownFly.Size = UDim2.new(0, 50, 0, 50)
+    btnDownFly.Position = UDim2.new(1, -55, 1, -55)
+    btnDownFly.BackgroundColor3 = Color3.fromRGB(100, 50, 80)
+    btnDownFly.BackgroundTransparency = 0.3
+    btnDownFly.Text = "⬇"
+    btnDownFly.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnDownFly.TextSize = 22
+    btnDownFly.Font = Enum.Font.GothamBold
+    btnDownFly.Parent = sg
+    
+    local c6 = Instance.new("UICorner")
+    c6.CornerRadius = UDim.new(0, 10)
+    c6.Parent = btnDownFly
+    
+    -- ✅ Estado: presión de botones
+    local function bindButton(btn, onBegin, onEnd)
+        btn.MouseButton1Down:Connect(onBegin)
+        btn.MouseButton1Up:Connect(onEnd)
+        -- Mobile: TouchTap soportado por TextButton automáticamente
+        -- Detectar cuando se suelta (mouse o touch)
+        btn.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                onEnd()
+            end
+        end)
+        -- Si el cursor sale del botón mientras se mantiene presionado
+        btn.MouseLeave:Connect(function()
+            onEnd()
+        end)
+    end
+    
+    -- ✅ Forward (▲)
+    bindButton(btnUp, function() speedCarForward = 1 end, function() speedCarForward = 0 end)
+    -- ✅ Backward (▼)
+    bindButton(btnDown, function() speedCarForward = -1 end, function() speedCarForward = 0 end)
+    -- ✅ Left (◀)
+    bindButton(btnLeft, function() speedCarSide = -1 end, function() speedCarSide = 0 end)
+    -- ✅ Right (▶)
+    bindButton(btnRight, function() speedCarSide = 1 end, function() speedCarSide = 0 end)
+    -- ✅ Up fly (⬆)
+    bindButton(btnUpFly, function() speedCarUp = 1 end, function() speedCarUp = 0 end)
+    -- ✅ Down fly (⬇)
+    bindButton(btnDownFly, function() speedCarUp = -1 end, function() speedCarUp = 0 end)
+end
+
+local function destroySpeedCarJoystick()
+    if speedCarJoystickGui then
+        pcall(function() speedCarJoystickGui:Destroy() end)
+        speedCarJoystickGui = nil
+    end
+    speedCarForward = 0
+    speedCarSide = 0
+    speedCarUp = 0
+end
+
 VehicleTab:Toggle({
     Title = "🚀 Speed Car",
-    Desc = "Mueve el carro en todas direcciones con velocidad ajustable",
+    Desc = "Show on-screen joystick to move your car (mobile/PC)",
     Default = false,
     Callback = function(bx)
         SpeedCarEnabled = bx
@@ -4173,13 +4489,13 @@ VehicleTab:Toggle({
             speedCarLoop = nil
         end
         if bx then
+            createSpeedCarJoystick()
             speedCarLoop = task.spawn(function()
                 local Players = game:GetService("Players")
                 local RunService = game:GetService("RunService")
                 local UserInputService = game:GetService("UserInputService")
                 local client = Players.LocalPlayer
                 
-                -- ✅ Loop principal: aplica velocidad según teclas WASD
                 while SpeedCarEnabled do
                     task.wait()
                     pcall(function()
@@ -4188,12 +4504,12 @@ VehicleTab:Toggle({
                         local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
                         if not vPart then return end
                         
-                        -- Calcular vector de movimiento según teclas
-                        local forward = 0
-                        local side = 0
-                        local up = 0
+                        -- Leer inputs (joystick visual + teclado)
+                        local forward = speedCarForward
+                        local side = speedCarSide
+                        local up = speedCarUp
                         
-                        -- ✅ WASD + Flechas para mover en todas direcciones
+                        -- También aceptar teclado WASD
                         if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then
                             forward = 1
                         elseif UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down) then
@@ -4206,19 +4522,14 @@ VehicleTab:Toggle({
                             side = 1
                         end
                         
-                        -- Espacio para subir, Shift para bajar
                         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
                             up = 1
                         elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
                             up = -1
                         end
                         
-                        -- Si hay alguna tecla de movimiento presionada
                         if forward ~= 0 or side ~= 0 or up ~= 0 then
-                            -- ✅ Multiplicar la velocidad por el valor del slider (1-100)
-                            local speedMultiplier = SpeedCarValue * 3  -- 1=3 speed, 100=300 speed
-                            
-                            -- Calcular dirección en el espacio del carro
+                            local speedMultiplier = SpeedCarValue * 3
                             local lookDir = vPart.CFrame.LookVector
                             local rightDir = vPart.CFrame.RightVector
                             
@@ -4227,7 +4538,6 @@ VehicleTab:Toggle({
                                 moveVector = moveVector.Unit * speedMultiplier
                             end
                             
-                            -- ✅ Aplicar BodyVelocity para mover el carro
                             local oldBV = vPart:FindFirstChild("SpeedCarBV")
                             if oldBV then oldBV:Destroy() end
                             
@@ -4237,11 +4547,9 @@ VehicleTab:Toggle({
                             bv.Velocity = moveVector
                             bv.Parent = vPart
                         else
-                            -- Si no hay teclas, detener BodyVelocity
                             local oldBV = vPart:FindFirstChild("SpeedCarBV")
                             if oldBV then
                                 oldBV.Velocity = Vector3.new(0, 0, 0)
-                                -- Quitar después de 0.1s para no acumular
                                 task.delay(0.1, function()
                                     pcall(function() oldBV:Destroy() end)
                                 end)
@@ -4249,25 +4557,24 @@ VehicleTab:Toggle({
                         end
                     end)
                 end
-                
-                -- Cleanup al desactivar
-                pcall(function()
-                    local vehicle = getMyVehicle()
-                    if vehicle then
-                        local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
-                        if vPart then
-                            local oldBV = vPart:FindFirstChild("SpeedCarBV")
-                            if oldBV then oldBV:Destroy() end
-                        end
-                    end
-                end)
             end)
             if A then A:Notify({
                 Title = "✅ Speed Car ON",
-                Description = "Usa WASD/Flechas para mover - Espacio=Subir, Shift=Bajar",
+                Description = "Use the on-screen joystick or WASD/Space/Shift",
                 Duration = 5
             }) end
         else
+            destroySpeedCarJoystick()
+            pcall(function()
+                local vehicle = getMyVehicle()
+                if vehicle then
+                    local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
+                    if vPart then
+                        local oldBV = vPart:FindFirstChild("SpeedCarBV")
+                        if oldBV then oldBV:Destroy() end
+                    end
+                end
+            end)
             if A then A:Notify({Title = "❌ Speed Car OFF", Duration = 3}) end
         end
     end
@@ -4339,17 +4646,22 @@ end -- cierra do del BLOCKPIN
 
 task.wait(1)
 print("🎯 Yupitactico v3.1.4 - Todos los cambios aplicados!")
+print("🎨 Title: 'yupitactico I block spin paid 🔪' - Purple BG / Blue text")
+print("🌐 Menu: All in English")
 print("📍 Silent Aim: Random Head/Torso cada 3s (8 hits) + Dropdown Head and Torso/Random")
 print("🎒 ESP Inventario: Actualización cada 10s")
 print("🖼️ ESP Items: Imagen + Nombre (mismo tamaño)")
 print("🚪🪟 Doors + Windows: Eliminar puertas y ventanas (mapa + carros)")
 print("🛡️ Anti Bump: Snap x2 cuando HP > 40")
+print("🔄 Anti Aim Beta: Character rotates auto, camera moves normally")
 print("❤️ God Mode: GUI separada Mode Normal / God Mode")
+print("🦘 Jump Power: Altura 50, solo botón de salto")
+print("🙈 Hide Name: Shows 'yupitactico on top' in rainbow")
 print("🚗 Car Guard: Bloquea 'crashed_car'")
 print("🛡️ God Car: Carro NO se rompe al chocar")
 print("💥 Bump Aura Car: FIXED con network ownership")
 print("💾 Save Car: FIXED con network ownership")
-print("🚀 Speed Car: Slider 1-100 + WASD/Flechas/Espacio/Shift")
+print("🚀 Speed Car: Slider 1-100 + On-screen joystick + WASD/Space/Shift")
 print("💳 Auto Hack ATMs: Completa minijuego SliderMinigame")
 print("🎣 Auto Pesca: Completa minijuego de pesca")
 print("🎨 Tracer: Color Cambiante (Rainbow)")
