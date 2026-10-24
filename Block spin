@@ -934,16 +934,16 @@ local function createBillboardForPlayer(aG)
  local aO = getWeaponInfo(aN)
  if aO then
  local aP = Instance.new("ImageLabel", aJ)
- aP.Size = UDim2.new(0, 22, 0, 22)
+ aP.Size = UDim2.new(0, 18, 0, 18)
  aP.BackgroundTransparency = 1
  aP.Image = aO.ImageId
  aP.ImageTransparency = 0
- aP.ScaleType = Enum.ScaleType.Fit
+ aP.ScaleType = Enum.ScaleType.Stretch
  aP.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 
  local aQ = Instance.new("UIStroke", aP)
  aQ.Color = at[aO.Rarity] or Color3.new(1, 1, 1)
- aQ.Thickness = 1.5
+ aQ.Thickness = 1
  aQ.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
  aQ.LineJoinMode = Enum.LineJoinMode.Miter
  end
@@ -1147,19 +1147,23 @@ local function createESP(aG)
  local aR = aP.X
  local aS = aP.Y - 15
 
- if O and aN and aN.Health > 0 then
- local aT = aN.Health / (aN.MaxHealth > 0 and aN.MaxHealth or 1)
- local aU = 4
- local aV = 60
+ if O and aN then
+ local aT = math.clamp(aN.Health / (aN.MaxHealth > 0 and aN.MaxHealth or 1), 0, 1)
+ local aU = 5
+ local aV = 50
  local aW = aR - aV / 2
 
  aJ.Position = Vector2.new(aW, aS - aU - 2)
  aJ.Size = Vector2.new(aV, aU)
+ aJ.Thickness = 1
+ aJ.Color = Color3.fromRGB(0, 0, 0)
+ aJ.Transparency = 1
  aJ.Visible = true
 
  aK.Position = Vector2.new(aW, aS - aU - 2)
  aK.Size = Vector2.new(aV * aT, aU)
  aK.Color = Color3.fromHSV(aT * 0.333, 0.8, 0.9)
+ aK.Transparency = 1
  aK.Visible = true
 
  aS = aS - aU - 6
@@ -1173,10 +1177,25 @@ local function createESP(aG)
  local aV = math.clamp(aO / 50, 0, 1)
  local aW = aU - (aU - aT) * aV
 
+ local isDead = (not aN) or aN.Health <= 0
+ local isDowned = false
+ pcall(function()
+ if aN and aN.GetAttribute then
+ isDowned = aN:GetAttribute("HasBeenDowned") or aN:GetAttribute("IsDead")
+ end
+ end)
+
  aH.Text = aG.Name
  aH.Size = math.floor(aW)
+ if isDead or isDowned then
+ aH.Color = Color3.fromRGB(40, 40, 40)
+ aH.Outline = false
+ aH.Transparency = 0.4
+ else
  aH.Color = isPlayerExcluded(aG.Name) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 255, 255)
  aH.Outline = true
+ aH.Transparency = 1
+ end
  aH.Position = Vector2.new(aR, aS - 16)
  aH.Visible = true
  else
@@ -1549,24 +1568,28 @@ b.RenderStepped:Connect(function()
  local aN = getClosestTarget()
 
  if J then
- J.Visible = F
- if F then
- local isAiming = false
- pcall(function()
- isAiming = d:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
- end)
- if not isAiming then
+ local hasGunEquipped = false
  pcall(function()
  local tool = r.Character and r.Character:FindFirstChildOfClass("Tool")
  if tool and c.Items.gun:FindFirstChild(tool.Name) then
  local ammo = tool:GetAttribute("current_ammo")
  if ammo and ammo > 0 then
- isAiming = true
+ hasGunEquipped = true
  end
  end
  end)
+
+ local isAiming = false
+ if hasGunEquipped then
+ pcall(function()
+ isAiming = d:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+ end)
  end
- local currentRadius = isAiming and (H + 20) or H
+
+ local shouldShow = F and hasGunEquipped and isAiming
+ J.Visible = shouldShow
+ if shouldShow then
+ local currentRadius = H + 20
  if z then
  J.Position = UDim2.fromScale(0.5, 0.5)
  J.Size = UDim2.fromOffset(currentRadius * 2, currentRadius * 2)
