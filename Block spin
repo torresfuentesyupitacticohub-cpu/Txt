@@ -934,18 +934,12 @@ local function createBillboardForPlayer(aG)
  local aO = getWeaponInfo(aN)
  if aO then
  local aP = Instance.new("ImageLabel", aJ)
- aP.Size = UDim2.new(0, 18, 0, 18)
+ aP.Size = UDim2.new(0, 32, 0, 32)
  aP.BackgroundTransparency = 1
  aP.Image = aO.ImageId
  aP.ImageTransparency = 0
  aP.ScaleType = Enum.ScaleType.Stretch
  aP.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-
- local aQ = Instance.new("UIStroke", aP)
- aQ.Color = at[aO.Rarity] or Color3.new(1, 1, 1)
- aQ.Thickness = 1
- aQ.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
- aQ.LineJoinMode = Enum.LineJoinMode.Miter
  end
  end
 
@@ -1147,26 +1141,39 @@ local function createESP(aG)
  local aR = aP.X
  local aS = aP.Y - 15
 
+ local topPos, topOnScreen
+ pcall(function()
+ local head = aG.Character:FindFirstChild("Head")
+ if head then
+ topPos, topOnScreen = y:WorldToViewportPoint(head.Position + Vector3.new(0, 1, 0))
+ end
+ end)
+ local bottomPos = aP
+ local boxHeight = 80
+ local boxTopY = aP.Y
+ if topPos and topOnScreen then
+ boxTopY = topPos.Y
+ boxHeight = math.clamp(aP.Y - topPos.Y, 30, 200)
+ end
+ local boxWidth = math.clamp(boxHeight * 0.35, 12, 30)
+ local boxLeftX = aR - boxWidth / 2 - boxWidth - 4
+
  if O and aN then
  local aT = math.clamp(aN.Health / (aN.MaxHealth > 0 and aN.MaxHealth or 1), 0, 1)
- local aU = 5
- local aV = 50
- local aW = aR - aV / 2
 
- aJ.Position = Vector2.new(aW, aS - aU - 2)
- aJ.Size = Vector2.new(aV, aU)
+ aJ.Position = Vector2.new(boxLeftX, boxTopY)
+ aJ.Size = Vector2.new(boxWidth, boxHeight)
  aJ.Thickness = 1
  aJ.Color = Color3.fromRGB(0, 0, 0)
  aJ.Transparency = 1
  aJ.Visible = true
 
- aK.Position = Vector2.new(aW, aS - aU - 2)
- aK.Size = Vector2.new(aV * aT, aU)
+ local fillHeight = boxHeight * aT
+ aK.Position = Vector2.new(boxLeftX, boxTopY + (boxHeight - fillHeight))
+ aK.Size = Vector2.new(boxWidth, fillHeight)
  aK.Color = Color3.fromHSV(aT * 0.333, 0.8, 0.9)
  aK.Transparency = 1
  aK.Visible = true
-
- aS = aS - aU - 6
  else
  aJ.Visible = false
  aK.Visible = false
