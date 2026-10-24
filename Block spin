@@ -61,7 +61,7 @@ if A then
     end)
 
     B:EditOpenButton({
-        Title = "yupitactico I block spin paid 🔪",
+        Title = "🎯 YUPITACTICO",
         Icon = "",
         CornerRadius = UDim.new(0, 16),
         StrokeThickness = 2,
@@ -75,7 +75,7 @@ if A then
     })
 
     B:Tag({
-        Title = "Yupitactico | blockspin",
+        Title = "Yupitactico | v2.2",
         Icon = "",
         Color = Color3.fromRGB(0, 255, 0),
         Radius = 13,
@@ -1184,8 +1184,35 @@ if E and E.FireServer then
                         aO[4] = CFrame.new(aU, aS)
                         local hits = {}
 
-                        if SilentAimTargetPart == "head" then
+                        local clientChar = r.Character
+                        local clientHead = clientChar and clientChar:FindFirstChild("Head")
+                        local headVisible = false
+                        local torsoVisible = false
 
+                        if clientHead and aP then
+                            local rayParams = RaycastParams.new()
+                            rayParams.FilterDescendantsInstances = {clientChar}
+                            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                            local headRay = workspace:Raycast(clientHead.Position, (aP.Position - clientHead.Position), rayParams)
+                            headVisible = (not headRay) or (headRay.Instance and headRay.Instance:IsDescendantOf(I.Character))
+                            if aTORSO then
+                                local torsoRay = workspace:Raycast(clientHead.Position, (aTORSO.Position - clientHead.Position), rayParams)
+                                torsoVisible = (not torsoRay) or (torsoRay.Instance and torsoRay.Instance:IsDescendantOf(I.Character))
+                            end
+                        end
+
+                        local usePart
+                        if not headVisible and torsoVisible then
+                            usePart = "torso"
+                        elseif headVisible and torsoVisible then
+                            usePart = SilentAimTargetPart
+                        elseif headVisible and not torsoVisible then
+                            usePart = "head"
+                        else
+                            usePart = SilentAimTargetPart
+                        end
+
+                        if usePart == "head" then
                             for i = 1, 8 do
                                 local headOffset = Vector3.new(
                                     math.random(-0.15, 0.15),
@@ -1201,7 +1228,6 @@ if E and E.FireServer then
                                 })
                             end
                         else
-
                             local torsoPos = predictPosition(aTORSO, aQ)
                             for i = 1, 8 do
                                 local torsoOffset = Vector3.new(
@@ -1296,7 +1322,8 @@ if E and E.FireServer then
                                 end
                             else
                                 if aV and aW then
-                                    aW.Color = Color3.fromRGB(255, 0, 0)
+                                    local hue = (tick() * 0.5) % 1
+                                    aW.Color = Color3.fromHSV(hue, 1, 1)
                                 end
                             end
                         end)
@@ -2505,7 +2532,7 @@ do
 
     local aBump = a1:Toggle({
         Title = "Anti Bump",
-        Desc = "Si HP > 40, hace snap 2 veces y se desactiva",
+        Desc = "HP >= 50: snap TP down. HP < 50: no snap.",
         Default = false,
         Callback = function(bx)
             antiBumpEnabled = bx
@@ -2518,7 +2545,7 @@ do
                     while antiBumpEnabled do
                         task.wait(0.3)
                         local hum = o.get_hum()
-                        if hum and hum.Health > 40 then
+                        if hum and hum.Health >= 50 then
                             if not W then
                                 pcall(doAntiBumpSnap)
                                 task.wait(1.5)
@@ -2526,7 +2553,7 @@ do
                         end
                     end
                 end)
-                if A then A:Notify({Title = "✅ Anti Bump ON", Description = "HP > 40 → Snap x2", Duration = 3}) end
+                if A then A:Notify({Title = "✅ Anti Bump ON", Description = "HP >= 50 → Snap TP", Duration = 3}) end
             else
                 if A then A:Notify({Title = "❌ Anti Bump OFF", Duration = 3}) end
             end
@@ -2597,193 +2624,51 @@ do
         D:Register("AntiAimBeta", aAntiAim)
     end
     a1:Divider()
-    a1:Section({Title = "Mode Selector"})
+    a1:Section({Title = "God Mode"})
 
     local godModeEnabled = false
     local godModeLoop = nil
 
-    local function enableGodMode()
-        godModeEnabled = true
-        if godModeLoop then
-            pcall(function() task.cancel(godModeLoop) end)
-        end
-        godModeLoop = task.spawn(function()
-            while godModeEnabled do
-                task.wait(0.1)
-                pcall(function()
-                    local hum = o.get_hum()
-                    if hum then
-                        if hum.MaxHealth < 1e9 then
-                            hum.MaxHealth = 1e9
-                        end
-                        if hum.Health < hum.MaxHealth then
-                            hum.Health = hum.MaxHealth
-                        end
-                        hum:SetAttribute("HasBeenDowned", false)
-                        hum:SetAttribute("IsDead", false)
+    local aGod = a1:Toggle({
+        Title = "❤️ God Mode",
+        Desc = "Vida máxima permanente",
+        Default = false,
+        Callback = function(bx)
+            godModeEnabled = bx
+            if godModeLoop then
+                pcall(function() task.cancel(godModeLoop) end)
+                godModeLoop = nil
+            end
+            if bx then
+                godModeLoop = task.spawn(function()
+                    while godModeEnabled do
+                        task.wait(0.1)
+                        pcall(function()
+                            local hum = o.get_hum()
+                            if hum then
+                                if hum.MaxHealth < 1e9 then
+                                    hum.MaxHealth = 1e9
+                                end
+                                if hum.Health < hum.MaxHealth then
+                                    hum.Health = hum.MaxHealth
+                                end
+                                hum:SetAttribute("HasBeenDowned", false)
+                                hum:SetAttribute("IsDead", false)
+                            end
+                        end)
                     end
                 end)
+                if A then A:Notify({Title = "✅ God Mode ON", Description = "Vida máxima permanente", Duration = 3}) end
+            else
+                pcall(function()
+                    local hum = o.get_hum()
+                    if hum then hum.MaxHealth = 100 end
+                end)
+                if A then A:Notify({Title = "❌ God Mode OFF", Duration = 3}) end
             end
-        end)
-    end
-
-    local function disableGodMode()
-        godModeEnabled = false
-        if godModeLoop then
-            pcall(function() task.cancel(godModeLoop) end)
-            godModeLoop = nil
-        end
-        pcall(function()
-            local hum = o.get_hum()
-            if hum then hum.MaxHealth = 100 end
-        end)
-    end
-    local modeSelectorGui = nil
-
-    local function closeModeSelector()
-        if modeSelectorGui then
-            pcall(function() modeSelectorGui:Destroy() end)
-            modeSelectorGui = nil
-        end
-        if A and B then
-            pcall(function()
-                if B.SetVisible then
-                    B:SetVisible(true)
-                elseif B.Toggle then
-                    B:Toggle()
-                end
-            end)
-        end
-    end
-
-    local function openModeSelector()
-
-        if A and B then
-            pcall(function()
-                if B.SetVisible then
-                    B:SetVisible(false)
-                end
-            end)
-        end
-
-        if modeSelectorGui then
-            pcall(function() modeSelectorGui:Destroy() end)
-        end
-        local sg = Instance.new("ScreenGui")
-        sg.Name = "YupitacticoModeSelector"
-        sg.ResetOnSpawn = false
-        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        sg.Parent = (gethui and gethui()) or game:GetService("CoreGui")
-        modeSelectorGui = sg
-        local bg = Instance.new("Frame")
-        bg.Size = UDim2.new(1, 0, 1, 0)
-        bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        bg.BackgroundTransparency = 0.6
-        bg.BorderSizePixel = 0
-        bg.Parent = sg
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0, 360, 0, 220)
-        frame.Position = UDim2.new(0.5, 0, 0.5, 0)
-        frame.AnchorPoint = Vector2.new(0.5, 0.5)
-        frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-        frame.BorderSizePixel = 0
-        frame.Parent = sg
-
-        local frameCorner = Instance.new("UICorner")
-        frameCorner.CornerRadius = UDim.new(0, 12)
-        frameCorner.Parent = frame
-
-        local frameStroke = Instance.new("UIStroke")
-        frameStroke.Color = Color3.fromRGB(0, 255, 0)
-        frameStroke.Thickness = 2
-        frameStroke.Parent = frame
-        local title = Instance.new("TextLabel")
-        title.Size = UDim2.new(1, -20, 0, 40)
-        title.Position = UDim2.new(0, 10, 0, 10)
-        title.BackgroundTransparency = 1
-        title.Text = "🎯 Selecciona tu Mode"
-        title.TextColor3 = Color3.fromRGB(0, 255, 0)
-        title.TextSize = 22
-        title.Font = Enum.Font.GothamBold
-        title.Parent = frame
-        local subtitle = Instance.new("TextLabel")
-        subtitle.Size = UDim2.new(1, -20, 0, 20)
-        subtitle.Position = UDim2.new(0, 10, 0, 50)
-        subtitle.BackgroundTransparency = 1
-        subtitle.Text = "Elige una opción - el GUI se cerrará"
-        subtitle.TextColor3 = Color3.fromRGB(180, 180, 180)
-        subtitle.TextSize = 13
-        subtitle.Font = Enum.Font.Gotham
-        subtitle.Parent = frame
-        local btnNormal = Instance.new("TextButton")
-        btnNormal.Size = UDim2.new(0.45, 0, 0, 70)
-        btnNormal.Position = UDim2.new(0.03, 0, 0, 90)
-        btnNormal.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-        btnNormal.Text = "👤 Mode Normal"
-        btnNormal.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btnNormal.TextSize = 16
-        btnNormal.Font = Enum.Font.GothamBold
-        btnNormal.AutoButtonColor = true
-        btnNormal.Parent = frame
-
-        local c1 = Instance.new("UICorner")
-        c1.CornerRadius = UDim.new(0, 8)
-        c1.Parent = btnNormal
-
-        local s1 = Instance.new("UIStroke")
-        s1.Color = Color3.fromRGB(120, 120, 130)
-        s1.Thickness = 2
-        s1.Parent = btnNormal
-        local btnGod = Instance.new("TextButton")
-        btnGod.Size = UDim2.new(0.45, 0, 0, 70)
-        btnGod.Position = UDim2.new(0.52, 0, 0, 90)
-        btnGod.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
-        btnGod.Text = "❤️ God Mode"
-        btnGod.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btnGod.TextSize = 16
-        btnGod.Font = Enum.Font.GothamBold
-        btnGod.AutoButtonColor = true
-        btnGod.Parent = frame
-
-        local c2 = Instance.new("UICorner")
-        c2.CornerRadius = UDim.new(0, 8)
-        c2.Parent = btnGod
-
-        local s2 = Instance.new("UIStroke")
-        s2.Color = Color3.fromRGB(255, 50, 50)
-        s2.Thickness = 2
-        s2.Parent = btnGod
-        local statusLabel = Instance.new("TextLabel")
-        statusLabel.Size = UDim2.new(1, -20, 0, 25)
-        statusLabel.Position = UDim2.new(0, 10, 0, 175)
-        statusLabel.BackgroundTransparency = 1
-        statusLabel.Text = godModeEnabled and "Estado actual: ❤️ God Mode" or "Estado actual: 👤 Mode Normal"
-        statusLabel.TextColor3 = godModeEnabled and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(180, 180, 180)
-        statusLabel.TextSize = 13
-        statusLabel.Font = Enum.Font.GothamBold
-        statusLabel.Parent = frame
-        btnNormal.MouseButton1Click:Connect(function()
-            disableGodMode()
-            if A then A:Notify({Title = "👤 Mode Normal", Description = "Sin god mode", Duration = 3}) end
-            task.wait(0.3)
-            closeModeSelector()
-        end)
-        btnGod.MouseButton1Click:Connect(function()
-            enableGodMode()
-            if A then A:Notify({Title = "❤️ God Mode ON", Description = "Vida máxima permanente", Duration = 3}) end
-            task.wait(0.3)
-            closeModeSelector()
-        end)
-    end
-
-    local aGodBtn = a1:Button({
-        Title = "🎯 Seleccionar Mode",
-        Desc = "Abre selector: Mode Normal / God Mode",
-        Callback = function()
-            openModeSelector()
         end
     })
-    D:Register("GodModeSelector", aGodBtn)
+    D:Register("GodMode", aGod)
 
     a1:Divider()
 end
@@ -2853,12 +2738,6 @@ bk:Button({
 
 bk:Divider()
 do
-    bk:Section({Title = "Doors"})
-
-    local doorRemoverConnection
-    local doorRemoverActive = false
-    local windowRemoverConnection = nil
-
     local function isDoor(bx)
         if not bx or not bx:IsA("BasePart") then return false end
         local by = string.lower(bx.Name)
@@ -2869,6 +2748,7 @@ do
         if by == "trunk" or by == "hood" or by == "hooddoor" or by == "trunkdoor" then return true end
         return false
     end
+
     local function isWindow(bx)
         if not bx or not bx:IsA("BasePart") then return false end
         local by = string.lower(bx.Name)
@@ -2896,16 +2776,6 @@ do
         return true
     end
 
-    local function removeDoor(bx)
-        if isDoor(bx) then return removePart(bx) end
-        return false
-    end
-
-    local function removeWindow(bx)
-        if isWindow(bx) then return removePart(bx) end
-        return false
-    end
-
     local function removeAllDoors()
         local removed = 0
         for _, by in ipairs(g:GetDescendants()) do
@@ -2926,92 +2796,20 @@ do
         return removed
     end
 
-    bk:Button({
-        Title = "🚪 Remove All Doors",
-        Desc = "Elimina puertas del mapa y de carros (1 vez)",
-        Callback = function()
-            local removed = removeAllDoors()
-            if A then
-                A:Notify({Title = "🚪 Puertas Eliminadas", Description = "Removidas: " .. tostring(removed), Duration = 3})
+    task.spawn(function()
+        task.wait(2)
+        local dr = removeAllDoors()
+        local wr = removeAllWindows()
+        print("[Yupitactico] Doors removed:", dr, "| Windows removed:", wr)
+        g.DescendantAdded:Connect(function(by)
+            if isDoor(by) or isWindow(by) then
+                task.wait(0.1)
+                removePart(by)
             end
-        end
-    })
-
-    bk:Button({
-        Title = "🪟 Remove All Windows",
-        Desc = "Elimina ventanas del mapa y de carros (1 vez)",
-        Callback = function()
-            local removed = removeAllWindows()
-            if A then
-                A:Notify({Title = "🪟 Ventanas Eliminadas", Description = "Removidas: " .. tostring(removed), Duration = 3})
-            end
-        end
-    })
-
-    bk:Button({
-        Title = "🪟🚪 Remove Doors + Windows",
-        Desc = "Elimina puertas y ventanas (todo a la vez)",
-        Callback = function()
-            local dr = removeAllDoors()
-            local wr = removeAllWindows()
-            if A then
-                A:Notify({Title = "🧹 Limpieza Completa", Description = "Puertas: " .. dr .. " | Ventanas: " .. wr, Duration = 3})
-            end
-        end
-    })
-
-    bk:Toggle({
-        Title = "🚪 Auto Remove Doors",
-        Desc = "Elimina puertas nuevas automáticamente",
-        Default = false,
-        Callback = function(bx)
-            doorRemoverActive = bx
-            if doorRemoverConnection then
-                pcall(function() doorRemoverConnection:Disconnect() end)
-                doorRemoverConnection = nil
-            end
-            if bx then
-                removeAllDoors()
-                doorRemoverConnection = g.DescendantAdded:Connect(function(by)
-                    if doorRemoverActive and isDoor(by) then
-                        task.wait(0.1)
-                        removePart(by)
-                    end
-                end)
-                if A then A:Notify({Title = "✅ Auto Remove Doors ON", Description = "Puertas nuevas se eliminarán", Duration = 3}) end
-            else
-                if A then A:Notify({Title = "❌ Auto Remove Doors OFF", Duration = 3}) end
-            end
-        end
-    })
-
-    bk:Toggle({
-        Title = "🪟 Auto Remove Windows",
-        Desc = "Elimina ventanas nuevas automáticamente",
-        Default = false,
-        Callback = function(bx)
-            local windowRemoverActive = bx
-            if windowRemoverConnection then
-                pcall(function() windowRemoverConnection:Disconnect() end)
-                windowRemoverConnection = nil
-            end
-            if bx then
-                removeAllWindows()
-                windowRemoverConnection = g.DescendantAdded:Connect(function(by)
-                    if windowRemoverActive and isWindow(by) then
-                        task.wait(0.1)
-                        removePart(by)
-                    end
-                end)
-                if A then A:Notify({Title = "✅ Auto Remove Windows ON", Description = "Ventanas nuevas se eliminarán", Duration = 3}) end
-            else
-                if A then A:Notify({Title = "❌ Auto Remove Windows OFF", Duration = 3}) end
-            end
-        end
-    })
-
-    bk:Divider()
+        end)
+    end)
 end
+
 
 bk:Input({
     Title = "Server Hop by ID",
@@ -3149,16 +2947,11 @@ local bn = bk:Button({
     end
 })
 D:Register("ClaimAllQuest", bn)
-bk:Divider()
-bk:Section({Title = "Auto Hacks"})
-
 do
     local ReplicatedStorage2 = game:GetService("ReplicatedStorage")
     local VirtualInputManager = game:GetService("VirtualInputManager")
     local RunService2 = game:GetService("RunService")
 
-    local atmAutoEnabled = false
-    local atmRenderConn = nil
     local atmLastClick = 0
     local SliderMinigame = nil
 
@@ -3189,35 +2982,16 @@ do
         end)
     end
 
-    local atmToggle = bk:Toggle({
-        Title = "💳 Auto Hack ATMs",
-        Desc = "Completa el minijuego del cajero automático",
-        Default = false,
-        Callback = function(bx)
-            atmAutoEnabled = bx
-            if atmRenderConn then
-                pcall(function() atmRenderConn:Disconnect() end)
-                atmRenderConn = nil
-            end
-            if bx then
-                atmRenderConn = RunService2.RenderStepped:Connect(function()
-                    if atmAutoEnabled then autoHitATM() end
-                end)
-                if A then A:Notify({Title = "✅ Auto Hack ATMs ON", Description = "Hackeando cajeros", Duration = 3}) end
-            else
-                if A then A:Notify({Title = "❌ Auto Hack ATMs OFF", Duration = 3}) end
-            end
-        end
-    })
-    D:Register("AutoHackATMs", atmToggle)
+    RunService2.RenderStepped:Connect(function()
+        autoHitATM()
+    end)
+    print("[Yupitactico] Auto Hack ATMs: ACTIVE")
 end
 do
     local ReplicatedStorage3 = game:GetService("ReplicatedStorage")
     local VirtualInputManager2 = game:GetService("VirtualInputManager")
     local RunService3 = game:GetService("RunService")
 
-    local fishAutoEnabled = false
-    local fishRenderConn = nil
     local fishLastClick = 0
     local FishingMinigame = nil
 
@@ -3275,28 +3049,12 @@ do
         end)
     end
 
-    local fishToggle = bk:Toggle({
-        Title = "🎣 Auto Pesca",
-        Desc = "Completa el minijuego de pesca automático",
-        Default = false,
-        Callback = function(bx)
-            fishAutoEnabled = bx
-            if fishRenderConn then
-                pcall(function() fishRenderConn:Disconnect() end)
-                fishRenderConn = nil
-            end
-            if bx then
-                fishRenderConn = RunService3.RenderStepped:Connect(function()
-                    if fishAutoEnabled then autoFish() end
-                end)
-                if A then A:Notify({Title = "✅ Auto Pesca ON", Description = "Pescando automáticamente", Duration = 3}) end
-            else
-                if A then A:Notify({Title = "❌ Auto Pesca OFF", Duration = 3}) end
-            end
-        end
-    })
-    D:Register("AutoPesca", fishToggle)
+    RunService3.RenderStepped:Connect(function()
+        autoFish()
+    end)
+    print("[Yupitactico] Auto Pesca: ACTIVE")
 end
+
 
 local bo = D.Save
 local bp = D.Delete
@@ -3615,7 +3373,11 @@ b.RenderStepped:Connect(function()
             if bB.imgStroke then bB.imgStroke.Color = bE end
             if bB.nameLabel then bB.nameLabel.TextColor3 = bE end
             if bB.billboard then bB.billboard.Enabled = true end
-            if bB.imgLabel then bB.imgLabel.Image = getItemImage(bA) end
+            if bB.imgLabel then
+                bB.imgLabel.Image = getItemImage(bA)
+                bB.imgLabel.ImageColor3 = bE
+                bB.imgLabel.ImageTransparency = 0.3
+            end
             if bB.amountLabel then
                 local bG = bA:GetAttribute("Amount") or 1
                 bB.amountLabel.Text = bG > 1 and "x" .. tostring(bG) or ""
