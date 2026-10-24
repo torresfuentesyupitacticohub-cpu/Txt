@@ -49,7 +49,7 @@ if ObsidianLib then
         opts = opts or {}
         local win = ObsidianLib:CreateWindow({
             Title = opts.Title or "Yupitactico",
-            Footer = opts.Author or "",
+            Footer = opts.Footer or opts.Author or "",
             NotifySide = "Right",
             ShowCustomCursor = true,
             ToggleKeybind = opts.KeyCode or Enum.KeyCode.G,
@@ -80,7 +80,7 @@ if ObsidianLib then
             local tab = win:AddTab({ Title = tabOpts.Title or "Tab", Icon = tabOpts.Icon })
             local tabWrapper = {}
             tabWrapper._tab = tab
-            tabWrapper._currentGroupbox = nil
+            tabWrapper._currentGroupbox = tab:AddLeftGroupbox(tabOpts.Title or "Section")
             tabWrapper._side = "Left"
 
             function tabWrapper:Section(sectionOpts)
@@ -236,6 +236,7 @@ if A then
         Title = "yupitactico I block spin paid 🔪",
         Icon = "",
         Author = "By Yupitactico",
+        Footer = "sasware kingx paid 🔪",
         Folder = "Yupitactico",
         Size = UDim2.fromOffset(650, 400),
         Theme = "Obsidian",
@@ -244,15 +245,23 @@ if A then
         KeyCode = Enum.KeyCode.G
     })
     pcall(function()
-        local WindowTheme = {
-            Accent = Color3.fromRGB(128, 0, 255),
-            Text = Color3.fromRGB(0, 120, 255),
-            TitleColor = Color3.fromRGB(0, 120, 255),
-            TitleBackground = Color3.fromRGB(75, 0, 130),
+        local PurpleTheme = {
+            Background = Color3.fromRGB(17, 13, 28),
+            Main       = Color3.fromRGB(27, 21, 42),
+            Panel      = Color3.fromRGB(36, 29, 53),
+            Border     = Color3.fromRGB(67, 55, 85),
+            Accent     = Color3.fromRGB(181, 119, 176),
+            Text       = Color3.fromRGB(230, 222, 238),
         }
-        if type(B.UpdateTheme) == "function" then
-            B:UpdateTheme(WindowTheme)
-        end
+        ObsidianLib.Scheme.BackgroundColor = PurpleTheme.Background
+        ObsidianLib.Scheme.MainColor = PurpleTheme.Main
+        ObsidianLib.Scheme.AccentColor = PurpleTheme.Accent
+        ObsidianLib.Scheme.OutlineColor = PurpleTheme.Border
+        ObsidianLib.Scheme.FontColor = PurpleTheme.Text
+        ObsidianLib.Scheme.DarkColor = PurpleTheme.Background
+        ObsidianLib.Scheme.WhiteColor = PurpleTheme.Text
+        ObsidianLib.Scheme.RedColor = Color3.fromRGB(255, 80, 80)
+        ObsidianLib.Scheme.DestructiveColor = Color3.fromRGB(220, 38, 38)
     end)
 
     B:EditOpenButton({
@@ -268,24 +277,6 @@ if A then
         Enabled = true,
         Draggable = true,
     })
-
-    pcall(function()
-        local PurpleTheme = {
-            Background = Color3.fromRGB(17, 13, 28),
-            Main       = Color3.fromRGB(27, 21, 42),
-            Panel      = Color3.fromRGB(36, 29, 53),
-            Border     = Color3.fromRGB(67, 55, 85),
-            Accent     = Color3.fromRGB(181, 119, 176),
-            Text       = Color3.fromRGB(230, 222, 238),
-        }
-        ObsidianLib.Scheme = {
-            BackgroundColor = PurpleTheme.Background,
-            MainColor       = PurpleTheme.Main,
-            AccentColor     = PurpleTheme.Accent,
-            OutlineColor    = PurpleTheme.Border,
-            FontColor       = PurpleTheme.Text,
-        }
-    end)
 
     B:Tag({
         Title = "Yupitactico | v2.2",
