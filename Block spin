@@ -232,18 +232,6 @@ end
 
 local B
 if A then
-    B = A:CreateWindow({
-        Title = "yupitactico I block spin paid 🔪",
-        Icon = "",
-        Author = "By Yupitactico",
-        Footer = "sasware kingx paid 🔪",
-        Folder = "Yupitactico",
-        Size = UDim2.fromOffset(650, 400),
-        Theme = "Obsidian",
-        Transparent = true,
-        Resizable = true,
-        KeyCode = Enum.KeyCode.G
-    })
     pcall(function()
         local PurpleTheme = {
             Background = Color3.fromRGB(17, 13, 28),
@@ -264,6 +252,19 @@ if A then
         ObsidianLib.Scheme.DestructiveColor = Color3.fromRGB(220, 38, 38)
     end)
 
+    B = A:CreateWindow({
+        Title = "yupitactico I block spin paid 🔪",
+        Icon = "",
+        Author = "By Yupitactico",
+        Footer = "sasware kingx paid 🔪",
+        Folder = "Yupitactico",
+        Size = UDim2.fromOffset(650, 400),
+        Theme = "Obsidian",
+        Transparent = true,
+        Resizable = true,
+        KeyCode = Enum.KeyCode.G
+    })
+
     B:EditOpenButton({
         Title = "🎯 YUPITACTICO",
         Icon = "",
@@ -276,27 +277,6 @@ if A then
         OnlyMobile = false,
         Enabled = true,
         Draggable = true,
-    })
-
-    B:Tag({
-        Title = "Yupitactico | v2.2",
-        Icon = "",
-        Color = Color3.fromRGB(0, 255, 0),
-        Radius = 13,
-    })
-
-    B:Tag({
-        Title = "premium 🔫",
-        Icon = "",
-        Color = Color3.fromRGB(0, 120, 255),
-        Radius = 13,
-    })
-
-    B:Tag({
-        Title = "3.1.4",
-        Icon = "",
-        Color = Color3.fromRGB(0, 255, 0),
-        Radius = 13,
     })
 else
     B = {
@@ -2841,55 +2821,6 @@ local be = a1:Slider({
     end
 })
 D:Register("SnapHeight", be)
-do
-    a1:Section({Title = "Anti Aim Beta"})
-
-    do
-        local antiAimEnabled = false
-
-        local aAntiAim = a1:Toggle({
-            Title = "🔄 Anti Aim Beta",
-            Desc = "Rotates character fast (down/up/sides). Movement not affected.",
-            Default = false,
-            Callback = function(state)
-                antiAimEnabled = state
-                if state then
-                    if A then A:Notify({
-                        Title = "✅ Anti Aim Beta ON",
-                        Description = "Character rotating fast in all directions",
-                        Duration = 3
-                    }) end
-                else
-                    if A then A:Notify({Title = "❌ Anti Aim Beta OFF", Duration = 3}) end
-                end
-            end
-        })
-        D:Register("AntiAimBeta", aAntiAim)
-
-        b.Heartbeat:Connect(function()
-            if not antiAimEnabled then return end
-            if not r.Character then return end
-            local hrp = r.Character:FindFirstChild("HumanoidRootPart")
-            local hum = r.Character:FindFirstChildOfClass("Humanoid")
-            if not hrp or not hum or hum.Health <= 0 then return end
-
-            local originalCFrame = hrp.CFrame
-            local pos = hrp.Position
-
-            local yaw = math.rad(math.random(0, 359))
-            local pitch = math.rad(math.random(-45, 45))
-
-            hrp.CFrame = CFrame.new(pos) * CFrame.Angles(pitch, yaw, 0)
-
-            b.RenderStepped:Wait()
-
-            pcall(function()
-                hrp.CFrame = originalCFrame
-            end)
-        end)
-    end
-    a1:Divider()
-end
 end
 do
 local bf = B:Tab({Title = "Principal", Icon = "house"})
@@ -3698,101 +3629,8 @@ local function getMyVehicle()
     end
     return nil
 end
-local CarGuardEnabled = false
-
-local function installCarGuardHook()
-    pcall(function()
-        if not installCarGuardHook.installed then
-            installCarGuardHook.installed = true
-            local oldFS = hookfunction(Instance.new('RemoteEvent').FireServer, newcclosure(function(self, ...)
-                local args = {...}
-                if not checkcaller() and CarGuardEnabled and tostring(self) == 'Send' then
-                    for _, v in pairs(args) do
-                        if tostring(v) == 'crashed_car' then
-                            return nil
-                        end
-                    end
-                end
-                return oldFS(self, ...)
-            end))
-        end
-    end)
-end
-
-VehicleTab:Toggle({
-    Title = "🚗 Car Guard",
-    Desc = "Bloquea 'crashed_car' - tu carro no se destruye",
-    Default = false,
-    Callback = function(bx)
-        CarGuardEnabled = bx
-        installCarGuardHook()
-        if bx then
-            if A then A:Notify({Title = "✅ Car Guard ON", Description = "crashed_car bloqueado", Duration = 3}) end
-        else
-            if A then A:Notify({Title = "❌ Car Guard OFF", Duration = 3}) end
-        end
-    end
-})
-
 
 VehicleTab:Divider()
-do
-local function createBlockPin()
-    local pinGui = Instance.new("ScreenGui")
-    pinGui.Name = "YupitacticoBlockPin"
-    pinGui.ResetOnSpawn = false
-    pinGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    pinGui.Parent = r:WaitForChild("PlayerGui")
-
-    local pinFrame = Instance.new("Frame")
-    pinFrame.Size = UDim2.new(0, 60, 0, 60)
-    pinFrame.Position = UDim2.new(1, -80, 0, 20)
-    pinFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    pinFrame.BackgroundTransparency = 0.5
-    pinFrame.Parent = pinGui
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(1, 0)
-    corner.Parent = pinFrame
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(0, 255, 0)
-    stroke.Thickness = 3
-    stroke.Parent = pinFrame
-
-    local icon = Instance.new("TextLabel")
-    icon.Size = UDim2.new(1, 0, 1, 0)
-    icon.BackgroundTransparency = 1
-    icon.Text = "📍"
-    icon.TextColor3 = Color3.fromRGB(0, 255, 0)
-    icon.TextScaled = true
-    icon.Font = Enum.Font.GothamBold
-    icon.Parent = pinFrame
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 120, 0, 20)
-    label.Position = UDim2.new(0, -65, 0.5, -10)
-    label.BackgroundTransparency = 1
-    label.Text = "Yupitactico"
-    label.TextColor3 = Color3.fromRGB(0, 255, 0)
-    label.TextSize = 14
-    label.Font = Enum.Font.GothamBold
-    label.Parent = pinFrame
-
-    task.spawn(function()
-        while pinGui and pinGui.Parent do
-            local hue = (tick() * 0.2) % 1
-            local pulseColor = Color3.fromHSV(hue, 1, 1)
-            if stroke then
-                stroke.Color = Color3.fromRGB(0, 255, 0)
-            end
-            task.wait(0.5)
-        end
-    end)
-end
-
-pcall(createBlockPin)
-end
 
 task.wait(1)
 print("🎯 Yupitactico v3.1.4 - Todos los cambios aplicados!")
