@@ -266,7 +266,7 @@ if A then
  })
 
  B:EditOpenButton({
- Title = " YUPITACTICO",
+ Title = "YUPITACTICO",
  Icon = "",
  CornerRadius = UDim.new(0, 16),
  StrokeThickness = 2,
@@ -325,7 +325,7 @@ end)
 
 local F = false
 local G = false
-local H = 120
+local H = 200
 local I
 local J
 
@@ -934,16 +934,19 @@ local function createBillboardForPlayer(aG)
  local aO = getWeaponInfo(aN)
  if aO then
  local aP = Instance.new("ImageLabel", aJ)
- aP.Size = UDim2.new(0, 20, 0, 20)
- aP.BackgroundTransparency = 0.1
+ aP.Size = UDim2.new(0, 22, 0, 22)
+ aP.BackgroundTransparency = 1
  aP.Image = aO.ImageId
- aP.BackgroundColor3 = Color3.fromRGB(240, 248, 255)
+ aP.ImageTransparency = 0
+ aP.ScaleType = Enum.ScaleType.Fit
+ aP.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 
- Instance.new("UICorner", aP).CornerRadius = UDim.new(0, 10)
+ Instance.new("UICorner", aP).CornerRadius = UDim.new(0, 4)
 
  local aQ = Instance.new("UIStroke", aP)
  aQ.Color = at[aO.Rarity] or Color3.new(1, 1, 1)
- aQ.Thickness = 2
+ aQ.Thickness = 1.5
+ aQ.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
  end
  end
 
@@ -1549,12 +1552,28 @@ b.RenderStepped:Connect(function()
  if J then
  J.Visible = F
  if F then
+ local isAiming = false
+ pcall(function()
+ isAiming = d:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+ end)
+ if not isAiming then
+ pcall(function()
+ local tool = r.Character and r.Character:FindFirstChildOfClass("Tool")
+ if tool and c.Items.gun:FindFirstChild(tool.Name) then
+ local ammo = tool:GetAttribute("current_ammo")
+ if ammo and ammo > 0 then
+ isAiming = true
+ end
+ end
+ end)
+ end
+ local currentRadius = isAiming and (H + 20) or H
  if z then
  J.Position = UDim2.fromScale(0.5, 0.5)
- J.Size = UDim2.fromOffset(H * 2, H * 2)
+ J.Size = UDim2.fromOffset(currentRadius * 2, currentRadius * 2)
  else
  J.Position = Vector2.new(y.ViewportSize.X / 2, y.ViewportSize.Y / 2)
- J.Radius = H
+ J.Radius = currentRadius
  end
  end
  end
@@ -1923,7 +1942,7 @@ do
  SilentAimTargetPart = "torso"
  end
  if A then
- A:Notify({Title = " Target: " .. (val or "Random"), Description = "Cambia entre Head/Torso cada 3s", Duration = 2})
+ A:Notify({Title = "Target: " .. (val or "Random"), Description = "Cambia entre Head/Torso cada 3s", Duration = 2})
  end
  end
  })
@@ -1947,9 +1966,9 @@ D:Register("SilentAimAttach", aP)
 local aQ = aN:Slider({
  Title = "FOV: ",
  Step = 1,
- Value = {Min = 20, Max = 800, Default = H},
+ Value = {Min = 20, Max = 800, Default = 200},
  Callback = function(aQ)
- H = tonumber(aQ) or 120
+ H = tonumber(aQ) or 200
  end
 })
 D:Register("FOVRadius", aQ)
@@ -2275,7 +2294,7 @@ aS:Toggle({
  ai().automatic = aU
  ai().GunModsAutoApply = aU
  if aU and A then
- A:Notify({Title = " Auto Modify", Duration = 2})
+ A:Notify({Title = "Auto Modify", Duration = 2})
  end
  end
 })
@@ -2390,7 +2409,7 @@ local aX = aInv:Toggle({
  end
  end
  end)
- if A then A:Notify({Title = " ESP Items Enabled", Duration = 3}) end
+ if A then A:Notify({Title = "ESP Items Enabled", Duration = 3}) end
  else
  if ax then
  task.cancel(ax)
@@ -2398,7 +2417,7 @@ local aX = aInv:Toggle({
  end
  for aY, aZ in pairs(av) do aZ:Destroy() end
  av = {}
- if A then A:Notify({Title = " ESP Items Disabled", Duration = 3}) end
+ if A then A:Notify({Title = "ESP Items Disabled", Duration = 3}) end
  end
  end
 })
@@ -2499,7 +2518,7 @@ local a3 = a1:Slider({
 D:Register("SpeedMultiplier", a3)
 
 local a4 = a1:Toggle({
- Title = " Jump Power",
+ Title = "Jump Power",
  Desc = "Hold jump button to fly up (Space / Touch). RICK-SOURCE style.",
  Default = false,
  Callback = function(a4)
@@ -2553,7 +2572,7 @@ local a6 = a1:Toggle({
  a5.send("set_sprinting_1", false)
  end)
  end)
- if A then A:Notify({Title = " INF STAMINA", Duration = 3}) end
+ if A then A:Notify({Title = "INF STAMINA", Duration = 3}) end
  else
  as = false
  AutoSprintToggle:Set(false)
@@ -2579,7 +2598,7 @@ local a6 = a1:Toggle({
  ai().OriginalSprintUpdate = nil
  end
  end
- if A then A:Notify({Title = " Auto Sprint Disabled", Duration = 3}) end
+ if A then A:Notify({Title = "Auto Sprint Disabled", Duration = 3}) end
  end
  end
 })
@@ -2601,9 +2620,9 @@ local a8 = a1:Toggle({
  Callback = function(a8)
  enabled = a8
  if a8 then
- if A then A:Notify({Title = " Anti Kill Enabled", Duration = 3}) end
+ if A then A:Notify({Title = "Anti Kill Enabled", Duration = 3}) end
  else
- if A then A:Notify({Title = " Anti Kill Disabled", Duration = 3}) end
+ if A then A:Notify({Title = "Anti Kill Disabled", Duration = 3}) end
  end
  end
 })
@@ -2855,9 +2874,9 @@ local bi = bf:Toggle({
  ad = bi
  if bi then
  applyToAll()
- if A then A:Notify({Title = " Auto Finish Enabled", Description = " Auto Enabled", Duration = 3}) end
+ if A then A:Notify({Title = "Auto Finish Enabled", Description = "Auto Enabled", Duration = 3}) end
  else
- if A then A:Notify({Title = " Auto Disabled", Description = " Auto Disabled", Duration = 3}) end
+ if A then A:Notify({Title = "Auto Disabled", Description = "Auto Disabled", Duration = 3}) end
  end
  end
 })
@@ -2873,27 +2892,27 @@ local ServerJobId = game.JobId
 bk:Section({Title = "Server Info"})
 
 bk:Button({
- Title = " Copy Server ID",
+ Title = "Copy Server ID",
  Desc = "Copy JobId to clipboard",
  Callback = function()
  if setclipboard then
  setclipboard(ServerJobId)
- if A then A:Notify({Title = " Copied!", Description = "Server ID: " .. ServerJobId, Duration = 3}) end
+ if A then A:Notify({Title = "Copied!", Description = "Server ID: " .. ServerJobId, Duration = 3}) end
  else
- if A then A:Notify({Title = " Error", Description = "setclipboard not supported", Duration = 3}) end
+ if A then A:Notify({Title = "Error", Description = "setclipboard not supported", Duration = 3}) end
  end
  end
 })
 
 bk:Button({
- Title = " Copy Place ID",
+ Title = "Copy Place ID",
  Desc = "Copy PlaceId to clipboard",
  Callback = function()
  if setclipboard then
  setclipboard(tostring(bl))
- if A then A:Notify({Title = " Copied!", Description = "Place ID: " .. bl, Duration = 3}) end
+ if A then A:Notify({Title = "Copied!", Description = "Place ID: " .. bl, Duration = 3}) end
  else
- if A then A:Notify({Title = " Error", Description = "setclipboard not supported", Duration = 3}) end
+ if A then A:Notify({Title = "Error", Description = "setclipboard not supported", Duration = 3}) end
  end
  end
 })
@@ -3135,19 +3154,19 @@ do
  local function openCrateWithType(bulletType)
  local crateOptions = getCrateOptions()
  if not crateOptions then
- if A then A:Notify({Title = " No Ammo Crate found", Duration = 2}) end
+ if A then A:Notify({Title = "No Ammo Crate found", Duration = 2}) end
  return
  end
  local targetItem = crateOptions:FindFirstChild(bulletType)
  if not targetItem then
- if A then A:Notify({Title = " No " .. bulletType .. " in crate", Duration = 2}) end
+ if A then A:Notify({Title = "No " .. bulletType .. " in crate", Duration = 2}) end
  return
  end
  local result = NetGet("open_crate", targetItem, "money")
  if result then
- if A then A:Notify({Title = " Bought " .. bulletType .. " ammo", Duration = 2}) end
+ if A then A:Notify({Title = "Bought " .. bulletType .. " ammo", Duration = 2}) end
  else
- if A then A:Notify({Title = " Failed to buy ammo", Duration = 2}) end
+ if A then A:Notify({Title = "Failed to buy ammo", Duration = 2}) end
  end
  end
 
@@ -3163,7 +3182,7 @@ do
  D:Register("BulletType", bulletDropdown)
 
  bk:Button({
- Title = " Buy Ammo Now",
+ Title = "Buy Ammo Now",
  Desc = "Buy selected bullet type once",
  Callback = function()
  local useType = selectedBulletType
@@ -3176,7 +3195,7 @@ do
  })
 
  local autoBuyToggle = bk:Toggle({
- Title = " Auto Buy Ammo",
+ Title = "Auto Buy Ammo",
  Desc = "Auto-buys ammo every 5 seconds",
  Default = false,
  Callback = function(val)
@@ -3194,9 +3213,9 @@ do
  pcall(function() openCrateWithType(useType) end)
  end
  end)
- if A then A:Notify({Title = " Auto Buy Ammo ON", Duration = 3}) end
+ if A then A:Notify({Title = "Auto Buy Ammo ON", Duration = 3}) end
  else
- if A then A:Notify({Title = " Auto Buy Ammo OFF", Duration = 3}) end
+ if A then A:Notify({Title = "Auto Buy Ammo OFF", Duration = 3}) end
  end
  end
  })
@@ -3523,12 +3542,20 @@ b.RenderStepped:Connect(function()
  data.highlight.OutlineColor = color
  data.highlight.FillColor = color
  data.highlight.Enabled = true
+
+ local dist = visible[i].dist
+ local scale = math.clamp(60 / math.max(dist, 5), 0.5, 2.5)
+ local nameSize = math.floor(13 * scale)
+ local amtSize = math.floor(11 * scale)
+
  data.name.Color = color
  data.name.Position = Vector2.new(pos.X, pos.Y)
+ data.name.Size = nameSize
  data.name.Text = model.Name
  data.name.Visible = true
  local amt = model:GetAttribute("Amount") or 1
- data.amount.Position = Vector2.new(pos.X, pos.Y + 15)
+ data.amount.Position = Vector2.new(pos.X, pos.Y + nameSize + 2)
+ data.amount.Size = amtSize
  data.amount.Text = amt > 1 and "[" .. tostring(amt) .. "]" or ""
  data.amount.Visible = amt > 1
  end
@@ -3635,6 +3662,37 @@ local function getMyVehicle()
 end
 
 VehicleTab:Divider()
+
+task.spawn(function()
+    task.wait(3)
+    pcall(function()
+        aw = true
+        for aY, aZ in ipairs(a:GetPlayers()) do
+            if aZ ~= r and aZ.Character then
+                createBillboardForPlayer(aZ)
+            end
+        end
+        ax = task.spawn(function()
+            while aw do
+                task.wait(10)
+                if not aw then break end
+                for aY, aZ in ipairs(a:GetPlayers()) do
+                    if aZ ~= r and aZ.Character then
+                        createBillboardForPlayer(aZ)
+                    end
+                end
+            end
+        end)
+        a.PlayerAdded:Connect(function(player)
+            player.CharacterAdded:Connect(function()
+                if aw then
+                    task.wait(0.5)
+                    createBillboardForPlayer(player)
+                end
+            end)
+        end)
+    end)
+end)
 
 task.wait(1)
 
