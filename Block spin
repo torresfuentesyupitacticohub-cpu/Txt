@@ -941,12 +941,11 @@ local function createBillboardForPlayer(aG)
  aP.ScaleType = Enum.ScaleType.Fit
  aP.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 
- Instance.new("UICorner", aP).CornerRadius = UDim.new(0, 4)
-
  local aQ = Instance.new("UIStroke", aP)
  aQ.Color = at[aO.Rarity] or Color3.new(1, 1, 1)
  aQ.Thickness = 1.5
- aQ.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+ aQ.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+ aQ.LineJoinMode = Enum.LineJoinMode.Miter
  end
  end
 
