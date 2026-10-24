@@ -1799,6 +1799,154 @@ local aR = aN:Input({
 })
 D:Register("FriendsList", aR)
 
+aN:Divider()
+aN:Section({Title = "AUTO SHOOT / RELOAD:"})
+
+local shotMultiplier = 1
+local autoShootEnabled = false
+local autoReloadEnabled = false
+local autoShootInterval = 0.08
+
+local function findGunTool(char)
+    if not char then return nil end
+    for _, tool in ipairs(char:GetChildren()) do
+        if tool:IsA("Tool") and tool.Name ~= "Fists" then
+            local gunFolder = c:FindFirstChild("Items") and c.Items:FindFirstChild("gun")
+            if gunFolder and gunFolder:FindFirstChild(tool.Name) then
+                return tool
+            end
+        end
+    end
+    return nil
+end
+
+local function getGunAmmo(gunTool)
+    if not gunTool then return 1, 1 end
+    local cur = gunTool:GetAttribute("current_ammo")
+    local mx = gunTool:GetAttribute("max_ammo")
+    if cur ~= nil then return cur, (mx or 30) end
+    return 1, 1
+end
+
+local function doReload(gunTool)
+    if aC and type(aC.event) == "number" then
+        aC.event = aC.event + 1
+    else
+        aq = (aq or 0) + 1
+    end
+    local ctr = (aC and aC.event) or aq
+    if E then
+        pcall(function() E:FireServer(ctr, "reload_gun", gunTool) end)
+    end
+end
+
+local function fireAtClosestTarget()
+    pcall(function()
+        local char = r.Character
+        if not char then return end
+        local myHead = char:FindFirstChild("Head")
+        if not myHead then return end
+        local gunTool = findGunTool(char)
+        if not gunTool then return end
+        local ammo = getGunAmmo(gunTool)
+        if ammo <= 0 then
+            doReload(gunTool)
+            return
+        end
+        local target = getClosestTarget()
+        if not target or not target.Character then return end
+        local tHead = target.Character:FindFirstChild("Head")
+        if not tHead then return end
+        local aimPos = tHead.Position
+        local shootCFrame = CFrame.new(myHead.Position, aimPos)
+        local hitData = {
+            [1] = {
+                [1] = {
+                    Instance = tHead,
+                    Normal = Vector3.new(0, 1, 0),
+                    Position = aimPos,
+                }
+            }
+        }
+        if aC and type(aC.event) == "number" then
+            aC.event = aC.event + 1
+        else
+            aq = (aq or 0) + 1
+        end
+        local ctr = (aC and aC.event) or aq
+        if E then
+            pcall(function() E:FireServer(ctr, "shoot_gun", gunTool, shootCFrame, hitData) end)
+        end
+    end)
+end
+
+task.spawn(function()
+    while true do
+        task.wait(autoShootInterval)
+        if autoShootEnabled then
+            pcall(fireAtClosestTarget)
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.15)
+        if autoReloadEnabled then
+            pcall(function()
+                local char = r.Character
+                if not char then return end
+                local gunTool = findGunTool(char)
+                if not gunTool then return end
+                local cur, mx = getGunAmmo(gunTool)
+                if cur < mx then
+                    doReload(gunTool)
+                end
+            end)
+        end
+    end
+end)
+
+local shotMultSlider = aN:Slider({
+    Title = "Shot Multiplier",
+    Step = 1,
+    Value = {Min = 1, Max = 5, Default = 1},
+    Callback = function(val)
+        shotMultiplier = tonumber(val) or 1
+    end
+})
+D:Register("ShotMultiplier", shotMultSlider)
+
+local autoShootToggle = aN:Toggle({
+    Title = "Auto Shoot",
+    Desc = "Auto targets and fires at closest enemy",
+    Default = false,
+    Callback = function(val)
+        autoShootEnabled = val
+    end
+})
+D:Register("AutoShoot", autoShootToggle)
+
+local autoShootSpeedSlider = aN:Slider({
+    Title = "Auto Shoot Speed",
+    Step = 0.01,
+    Value = {Min = 0.03, Max = 0.5, Default = 0.08},
+    Callback = function(val)
+        autoShootInterval = tonumber(val) or 0.08
+    end
+})
+D:Register("AutoShootSpeed", autoShootSpeedSlider)
+
+local autoReloadToggle = aN:Toggle({
+    Title = "Auto Reload",
+    Desc = "Auto reloads when ammo is low",
+    Default = false,
+    Callback = function(val)
+        autoReloadEnabled = val
+    end
+})
+D:Register("AutoReload", autoReloadToggle)
+
 pcall(function()
     aN:Divider()
 end)
@@ -2511,56 +2659,6 @@ local be = a1:Slider({
 })
 D:Register("SnapHeight", be)
 do
-    a1:Divider()
-    a1:Section({Title = "Anti Bump"})
-
-    local antiBumpEnabled = false
-    local antiBumpLoop = nil
-
-    local function doAntiBumpSnap()
-        if not u then return end
-        Z = u.Position.Y
-        V = true
-        performTeleport()
-        task.wait(0.15)
-        performTeleport()
-        task.wait(0.15)
-        V = false
-        X = nil
-        Z = nil
-    end
-
-    local aBump = a1:Toggle({
-        Title = "Anti Bump",
-        Desc = "HP >= 50: snap TP down. HP < 50: no snap.",
-        Default = false,
-        Callback = function(bx)
-            antiBumpEnabled = bx
-            if antiBumpLoop then
-                pcall(function() task.cancel(antiBumpLoop) end)
-                antiBumpLoop = nil
-            end
-            if bx then
-                antiBumpLoop = task.spawn(function()
-                    while antiBumpEnabled do
-                        task.wait(0.3)
-                        local hum = o.get_hum()
-                        if hum and hum.Health >= 50 then
-                            if not W then
-                                pcall(doAntiBumpSnap)
-                                task.wait(1.5)
-                            end
-                        end
-                    end
-                end)
-                if A then A:Notify({Title = "✅ Anti Bump ON", Description = "HP >= 50 → Snap TP", Duration = 3}) end
-            else
-                if A then A:Notify({Title = "❌ Anti Bump OFF", Duration = 3}) end
-            end
-        end
-    })
-    D:Register("AntiBump", aBump)
-    a1:Divider()
     a1:Section({Title = "Anti Aim Beta"})
 
     do
@@ -2947,6 +3045,102 @@ local bn = bk:Button({
     end
 })
 D:Register("ClaimAllQuest", bn)
+
+bk:Divider()
+bk:Section({Title = "Auto Buy Ammo"})
+
+do
+    local selectedBulletType = "Pistol"
+    local autoBuyAmmoEnabled = false
+
+    local function getCrateOptions()
+        local map = workspace:FindFirstChild("Map")
+        if not map then return nil end
+        local tiles = map:FindFirstChild("Tiles")
+        if not tiles then return nil end
+        local gunShopTile = tiles:FindFirstChild("GunShopTile")
+        if not gunShopTile then return nil end
+        local patriotWeapons = gunShopTile:FindFirstChild("PatriotWeapons")
+        if not patriotWeapons then return nil end
+        local interior = patriotWeapons:FindFirstChild("Interior")
+        if not interior then return nil end
+        local crates = interior:FindFirstChild("Crates")
+        if not crates then return nil end
+        local ammoCrate = crates:FindFirstChild("Ammo Crate")
+        if not ammoCrate then return nil end
+        return ammoCrate:FindFirstChild("CrateOptions")
+    end
+
+    local function openCrateWithType(bulletType)
+        local crateOptions = getCrateOptions()
+        if not crateOptions then
+            if A then A:Notify({Title = "❌ No Ammo Crate found", Duration = 2}) end
+            return
+        end
+        local targetItem = crateOptions:FindFirstChild(bulletType)
+        if not targetItem then
+            if A then A:Notify({Title = "❌ No " .. bulletType .. " in crate", Duration = 2}) end
+            return
+        end
+        local result = NetGet("open_crate", targetItem, "money")
+        if result then
+            if A then A:Notify({Title = "🔫 Bought " .. bulletType .. " ammo", Duration = 2}) end
+        else
+            if A then A:Notify({Title = "❌ Failed to buy ammo", Duration = 2}) end
+        end
+    end
+
+    local bulletDropdown = bk:Dropdown({
+        Title = "Bullet Type",
+        Values = {"Pistol", "Rifle", "Shotgun", "Random"},
+        Value = "Pistol",
+        Multi = false,
+        Callback = function(selected)
+            selectedBulletType = selected
+        end
+    })
+    D:Register("BulletType", bulletDropdown)
+
+    bk:Button({
+        Title = "🔫 Buy Ammo Now",
+        Desc = "Buy selected bullet type once",
+        Callback = function()
+            local useType = selectedBulletType
+            if useType == "Random" then
+                local options = {"Pistol", "Rifle", "Shotgun"}
+                useType = options[math.random(1, #options)]
+            end
+            openCrateWithType(useType)
+        end
+    })
+
+    local autoBuyToggle = bk:Toggle({
+        Title = "💳 Auto Buy Ammo",
+        Desc = "Auto-buys ammo every 5 seconds",
+        Default = false,
+        Callback = function(val)
+            autoBuyAmmoEnabled = val
+            if val then
+                task.spawn(function()
+                    while autoBuyAmmoEnabled do
+                        task.wait(5)
+                        if not autoBuyAmmoEnabled then break end
+                        local useType = selectedBulletType
+                        if useType == "Random" then
+                            local options = {"Pistol", "Rifle", "Shotgun"}
+                            useType = options[math.random(1, #options)]
+                        end
+                        pcall(function() openCrateWithType(useType) end)
+                    end
+                end)
+                if A then A:Notify({Title = "✅ Auto Buy Ammo ON", Duration = 3}) end
+            else
+                if A then A:Notify({Title = "❌ Auto Buy Ammo OFF", Duration = 3}) end
+            end
+        end
+    })
+    D:Register("AutoBuyAmmo", autoBuyToggle)
+end
 do
     local ReplicatedStorage2 = game:GetService("ReplicatedStorage")
     local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -3186,293 +3380,148 @@ end
 
 task.wait(2)
 do
-local bw
+local ItemCamera
 repeat task.wait() until workspace.CurrentCamera
-bw = workspace.CurrentCamera
-local function getItemImage(bx)
-    if not bx then return "rbxassetid://7072725737" end
-    for by, bz in ipairs(p:GetChildren()) do
-        if bz:IsA("Folder") then
-            local bA = bz:FindFirstChild(bx.Name)
-            if bA and bA:IsA("Tool") then
-                local bB = bA:GetAttribute("ImageId")
-                if bB and bB ~= "" then return bB end
+ItemCamera = workspace.CurrentCamera
+
+local function getRarityColor(model)
+    if model.Name == "Money" then return Color3.fromRGB(0, 255, 0) end
+    for _, folder in ipairs(p:GetChildren()) do
+        if folder:IsA("Folder") then
+            local item = folder:FindFirstChild(model.Name)
+            if item and item:GetAttribute("RarityName") then
+                return at[item:GetAttribute("RarityName")] or Color3.fromRGB(255, 255, 255)
             end
         end
     end
-    return "rbxassetid://7072725737"
-end
-
-local function getRarityColor(bx)
-    if bx.Name == "Money" then return Color3.fromRGB(0, 255, 0) end
-
-    for by, bz in ipairs(p:GetChildren()) do
-        if bz:IsA("Folder") then
-            local bA = bz:FindFirstChild(bx.Name)
-            if bA and bA:GetAttribute("RarityName") then
-                local bB = bA:GetAttribute("RarityName")
-                return at[bB] or Color3.fromRGB(255, 255, 255)
-            end
-        end
-    end
-
     return Color3.fromRGB(255, 255, 255)
 end
 
 local function cleanupItemDrawings()
-    for bx, by in pairs(w) do
-        if not bx or not bx.Parent then
-            if by.circle then pcall(function() by.circle:Remove() end) end
-            if by.innerCircle then pcall(function() by.innerCircle:Remove() end) end
-            if by.name then pcall(function() by.name:Remove() end) end
-            if by.amount then pcall(function() by.amount:Remove() end) end
-            if by.highlight then pcall(function() by.highlight:Destroy() end) end
-            if by.billboard then pcall(function() by.billboard:Destroy() end) end
-            w[bx] = nil
+    for model, data in pairs(w) do
+        if not model or not model.Parent then
+            pcall(function() data.name:Remove() end)
+            pcall(function() data.amount:Remove() end)
+            pcall(function() data.highlight:Destroy() end)
+            w[model] = nil
         end
     end
 end
 
 b.RenderStepped:Connect(function()
     cleanupItemDrawings()
-
     if not x then return end
-
-    local bx = v.Character and v.Character:FindFirstChild("HumanoidRootPart")
-    if not bx then return end
-
-    for by, bz in pairs(w) do
-        bz.circle.Visible = false
-        bz.innerCircle.Visible = false
-        bz.name.Visible = false
-        bz.amount.Visible = false
-        if bz.highlight then bz.highlight.Enabled = false end
-        if bz.billboard then bz.billboard.Enabled = false end
+    local myRoot = v.Character and v.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+    for _, data in pairs(w) do
+        data.name.Visible = false
+        data.amount.Visible = false
+        data.highlight.Enabled = false
     end
 
-    local by = {}
-    for bz, bA in ipairs(x:GetChildren()) do
-        if bA:IsA("Model") and bA:FindFirstChild("PickUpZone") and not bA:GetAttribute("Locked") then
-            local bB, bC = pcall(function() return bA.PickUpZone.Position end)
-            if bB and bC then
-                local bD = (bC - bx.Position).Magnitude
-                table.insert(by, {item = bA, dist = bD})
+    local visible = {}
+    for _, model in ipairs(x:GetChildren()) do
+        if model:IsA("Model") and model:FindFirstChild("PickUpZone") and not model:GetAttribute("Locked") then
+            local ok, zonePos = pcall(function() return model.PickUpZone.Position end)
+            if ok and zonePos then
+                table.insert(visible, {item = model, dist = (zonePos - myRoot.Position).Magnitude})
             end
         end
     end
+    table.sort(visible, function(a, b) return a.dist < b.dist end)
 
-    table.sort(by, function(bz, bA) return bz.dist < bA.dist end)
-
-    for bz = 1, math.min(20, #by) do
-        local bA = by[bz].item
-        local bB = w[bA]
-
-        if not bB then
-            bB = {
-                circle = Drawing.new("Circle"),
-                innerCircle = Drawing.new("Circle"),
+    for i = 1, math.min(20, #visible) do
+        local model = visible[i].item
+        local data = w[model]
+        if not data then
+            local hl = Instance.new("Highlight")
+            hl.Name = "ESP_Highlight"
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.FillTransparency = 0.6
+            hl.OutlineTransparency = 0
+            hl.Adornee = model
+            hl.Parent = model
+            data = {
                 name = Drawing.new("Text"),
-                amount = Drawing.new("Text")
+                amount = Drawing.new("Text"),
+                highlight = hl
             }
-            bB.circle.Thickness = 2
-            bB.circle.Transparency = 0.7
-            bB.circle.Filled = false
-            bB.innerCircle.Thickness = 2
-            bB.innerCircle.Transparency = 1
-            bB.innerCircle.Filled = true
-            bB.name.Outline = true
-            bB.name.OutlineColor = Color3.fromRGB(0, 0, 0)
-            bB.name.Center = true
-            bB.name.Size = 16
-            bB.name.Font = 4
-            bB.amount.Outline = true
-            bB.amount.OutlineColor = Color3.fromRGB(0, 0, 0)
-            bB.amount.Center = true
-            bB.amount.Size = 13
-            bB.amount.Color = Color3.fromRGB(200, 200, 200)
-            w[bA] = bB
+            data.name.Outline = true
+            data.name.OutlineColor = Color3.fromRGB(0, 0, 0)
+            data.name.Center = true
+            data.name.Size = 13
+            data.name.Font = 2
+            data.amount.Outline = true
+            data.amount.OutlineColor = Color3.fromRGB(0, 0, 0)
+            data.amount.Center = true
+            data.amount.Size = 11
+            data.amount.Font = 2
+            data.amount.Color = Color3.fromRGB(200, 200, 200)
+            w[model] = data
         end
 
-        if not bB.highlight or not bB.highlight.Parent then
-            local bC = Instance.new("Highlight")
-            bC.Name = "ESP_Highlight"
-            bC.FillTransparency = 0.5
-            bC.OutlineTransparency = 0.1
-            bC.Adornee = bA
-            bC.Parent = bA
-            bB.highlight = bC
-        end
-        if not bB.billboard or not bB.billboard.Parent then
-            local bImgGui = Instance.new("BillboardGui")
-            bImgGui.Name = "ItemESPImage"
-            bImgGui.Adornee = bA:FindFirstChild("PickUpZone") or bA.PrimaryPart or bA:FindFirstChildWhichIsA("BasePart")
-            bImgGui.Size = UDim2.new(0, 100, 0, 70)
-            bImgGui.StudsOffset = Vector3.new(0, 2, 0)
-            bImgGui.AlwaysOnTop = true
-            bImgGui.LightInfluence = 0
-            bImgGui.Parent = bA
-            local bImg = Instance.new("ImageLabel")
-            bImg.Size = UDim2.new(0, 40, 0, 40)
-            bImg.Position = UDim2.new(0.5, 0, 0, 0)
-            bImg.AnchorPoint = Vector2.new(0.5, 0)
-            bImg.BackgroundTransparency = 1
-            bImg.Image = getItemImage(bA)
-            bImg.Parent = bImgGui
-
-            local bImgCorner = Instance.new("UICorner")
-            bImgCorner.CornerRadius = UDim.new(0, 6)
-            bImgCorner.Parent = bImg
-
-            local bImgStroke = Instance.new("UIStroke")
-            bImgStroke.Thickness = 2
-            bImgStroke.Parent = bImg
-            local bNameLabel = Instance.new("TextLabel")
-            bNameLabel.Size = UDim2.new(0, 100, 0, 18)
-            bNameLabel.Position = UDim2.new(0.5, 0, 0, 42)
-            bNameLabel.AnchorPoint = Vector2.new(0.5, 0)
-            bNameLabel.BackgroundTransparency = 1
-            bNameLabel.Text = bA.Name
-            bNameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-            bNameLabel.TextScaled = false
-            bNameLabel.TextSize = 11
-            bNameLabel.Font = Enum.Font.GothamBold
-            bNameLabel.Parent = bImgGui
-
-            local bNameStroke = Instance.new("UIStroke")
-            bNameStroke.Thickness = 1
-            bNameStroke.Color = Color3.fromRGB(0, 0, 0)
-            bNameStroke.Parent = bNameLabel
-            local bAmountLabel = Instance.new("TextLabel")
-            bAmountLabel.Size = UDim2.new(0, 100, 0, 14)
-            bAmountLabel.Position = UDim2.new(0.5, 0, 0, 58)
-            bAmountLabel.AnchorPoint = Vector2.new(0.5, 0)
-            bAmountLabel.BackgroundTransparency = 1
-            bAmountLabel.Text = ""
-            bAmountLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-            bAmountLabel.TextSize = 10
-            bAmountLabel.Font = Enum.Font.Gotham
-            bAmountLabel.Parent = bImgGui
-
-            bB.billboard = bImgGui
-            bB.imgLabel = bImg
-            bB.imgStroke = bImgStroke
-            bB.nameLabel = bNameLabel
-            bB.amountLabel = bAmountLabel
-        end
-
-        local bC, bD = bw:WorldToViewportPoint(bA.PickUpZone.Position)
-        if bD then
-            local bE = getRarityColor(bA)
-            local bF = math.clamp(aA / bC.Z, 3, 6)
-
-            if bB.highlight then
-                bB.highlight.FillColor = bE
-                bB.highlight.OutlineColor = bE
-                bB.highlight.Enabled = true
-            end
-            if bB.imgStroke then bB.imgStroke.Color = bE end
-            if bB.nameLabel then bB.nameLabel.TextColor3 = bE end
-            if bB.billboard then bB.billboard.Enabled = true end
-            if bB.imgLabel then
-                bB.imgLabel.Image = getItemImage(bA)
-                bB.imgLabel.ImageColor3 = bE
-                bB.imgLabel.ImageTransparency = 0.3
-            end
-            if bB.amountLabel then
-                local bG = bA:GetAttribute("Amount") or 1
-                bB.amountLabel.Text = bG > 1 and "x" .. tostring(bG) or ""
-            end
-
-            bB.circle.Position = Vector2.new(bC.X, bC.Y)
-            bB.circle.Radius = bF + 5
-            bB.circle.Color = bE
-            bB.circle.Visible = true
-
-            bB.innerCircle.Position = Vector2.new(bC.X, bC.Y)
-            bB.innerCircle.Radius = bF
-            bB.innerCircle.Color = bE
-            bB.innerCircle.Visible = true
-
-            bB.name.Color = bE
-            bB.name.Position = Vector2.new(bC.X, bC.Y - bF - 20)
-            bB.name.Text = bA.Name
-            bB.name.Visible = false
-
-            local bG = bA:GetAttribute("Amount") or 1
-            bB.amount.Position = Vector2.new(bC.X, bC.Y + bF + 15)
-            bB.amount.Text = bG > 1 and "[" .. tostring(bG) .. "]" or ""
-            bB.amount.Visible = false
-        else
-            bB.circle.Visible = false
-            bB.innerCircle.Visible = false
-            bB.name.Visible = false
-            bB.amount.Visible = false
-            if bB.highlight then bB.highlight.Enabled = false end
-            if bB.billboard then bB.billboard.Enabled = false end
+        local pos, vis = ItemCamera:WorldToViewportPoint(model.PickUpZone.Position)
+        if vis then
+            local color = getRarityColor(model)
+            data.highlight.OutlineColor = color
+            data.highlight.FillColor = color
+            data.highlight.Enabled = true
+            data.name.Color = color
+            data.name.Position = Vector2.new(pos.X, pos.Y)
+            data.name.Text = model.Name
+            data.name.Visible = true
+            local amt = model:GetAttribute("Amount") or 1
+            data.amount.Position = Vector2.new(pos.X, pos.Y + 15)
+            data.amount.Text = amt > 1 and "[" .. tostring(amt) .. "]" or ""
+            data.amount.Visible = amt > 1
         end
     end
 end)
 
-a.PlayerRemoving:Connect(function(bx)
-    if bx == v then
-        for by, bz in pairs(w) do
-            pcall(function() bz.circle:Remove() end)
-            pcall(function() bz.innerCircle:Remove() end)
-            pcall(function() bz.name:Remove() end)
-            pcall(function() bz.amount:Remove() end)
-            pcall(function() if bz.highlight then bz.highlight:Destroy() end end)
-            pcall(function() if bz.billboard then bz.billboard:Destroy() end end)
+a.PlayerRemoving:Connect(function(player)
+    if player == v then
+        for _, data in pairs(w) do
+            pcall(function() data.name:Remove() end)
+            pcall(function() data.amount:Remove() end)
+            pcall(function() data.highlight:Destroy() end)
         end
         w = {}
     end
 end)
 end
 do
-local BuyTab = B:Tab({Title = "Buy", Icon = "house"})
-
-BuyTab:Section({Title = "Buy"})
-
-local CrateController = require(game:GetService("ReplicatedStorage").Modules.Game.CrateSystem.Crate)
-local EnabledSkip = false
-
-BuyTab:Toggle({
-    Title = "Skip animation",
-    Desc = "",
-    Value = false,
-    Callback = function(v)
-        EnabledSkip = v
-        if EnabledSkip then
+    task.spawn(function()
+        task.wait(3)
+        pcall(function()
+            local CrateController = require(game:GetService("ReplicatedStorage").Modules.Game.CrateSystem.Crate)
             task.spawn(function()
-                while EnabledSkip do
+                while true do
                     task.wait()
-                    if CrateController.class and CrateController.class.objects then
-                        for _, crate in pairs(CrateController.class.objects) do
-                            pcall(function()
-                                if crate.states and crate.states.open and crate.states.open.set then
-                                    crate.states.open.set(true)
-                                end
-                                if CrateController.skipping and CrateController.skipping.set then
-                                    CrateController.skipping.set(true)
-                                end
-                            end)
+                    pcall(function()
+                        if CrateController.class and CrateController.class.objects then
+                            for _, crate in pairs(CrateController.class.objects) do
+                                pcall(function()
+                                    if crate.states and crate.states.open and crate.states.open.set then
+                                        crate.states.open.set(true)
+                                    end
+                                    if CrateController.skipping and CrateController.skipping.set then
+                                        CrateController.skipping.set(true)
+                                    end
+                                end)
+                            end
                         end
-                    end
-                    if CrateController.spinning and CrateController.skip_spin then
-                        if not CrateController.spinning.get() then
-                            pcall(function() CrateController.skip_spin() end)
+                        if CrateController.spinning and CrateController.skip_spin then
+                            if not CrateController.spinning.get() then
+                                pcall(function() CrateController.skip_spin() end)
+                            end
                         end
-                    end
+                    end)
                 end
             end)
-        else
-            pcall(function()
-                if CrateController.skipping and CrateController.skipping.set then
-                    CrateController.skipping.set(false)
-                end
-            end)
-        end
-    end
-})
+            print("[Yupitactico] Skip Crate Animation: ACTIVE")
+        end)
+    end)
+end
 local VehicleTab = B:Tab({Title = "Vehicle", Icon = "car"})
 
 VehicleTab:Section({Title = "Vehicle"})
@@ -3615,81 +3664,6 @@ VehicleTab:Toggle({
             if A then A:Notify({Title = "✅ God Car ON", Description = "Carro inmune a choques", Duration = 3}) end
         else
             if A then A:Notify({Title = "❌ God Car OFF", Duration = 3}) end
-        end
-    end
-})
-local BumpAuraCarEnabled = false
-local bumpAuraLoop = nil
-
-VehicleTab:Toggle({
-    Title = "💥 Bump Aura Car",
-    Desc = "Repela carros enemigos cercanos (FIXED)",
-    Default = false,
-    Callback = function(bx)
-        BumpAuraCarEnabled = bx
-        if bumpAuraLoop then
-            pcall(function() task.cancel(bumpAuraLoop) end)
-            bumpAuraLoop = nil
-        end
-        if bx then
-            bumpAuraLoop = task.spawn(function()
-                while BumpAuraCarEnabled do
-                    task.wait(0.1)
-                    pcall(function()
-                        local client = game.Players.LocalPlayer
-                        local char = client.Character
-                        if not char then return end
-                        local hrp = char:FindFirstChild("HumanoidRootPart")
-                        if not hrp then return end
-
-                        local vehicles = workspace:FindFirstChild("Vehicles")
-                        if not vehicles then return end
-
-                        for _, vehicle in ipairs(vehicles:GetChildren()) do
-                            if vehicle:IsA("Model") then
-                                local ownerId = vehicle:GetAttribute("OwnerUserId")
-                                if ownerId ~= client.UserId then
-                                    pcall(function() vehicle:SetNetworkOwner(client) end)
-
-                                    local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
-                                    if vPart then
-                                        local dist = (vPart.Position - hrp.Position).Magnitude
-                                        if dist < 35 then
-                                            local pushDir = (vPart.Position - hrp.Position).Unit
-                                            if pushDir.Magnitude > 0 then
-
-                                                local oldBV = vPart:FindFirstChild("BumpAuraBV")
-                                                if oldBV then oldBV:Destroy() end
-
-                                                local bv = Instance.new("BodyVelocity")
-                                                bv.Name = "BumpAuraBV"
-                                                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-                                                bv.Velocity = pushDir * 250 + Vector3.new(0, 80, 0)
-                                                bv.Parent = vPart
-                                                local oldBG = vPart:FindFirstChild("BumpAuraBG")
-                                                if oldBG then oldBG:Destroy() end
-
-                                                local bg = Instance.new("BodyAngularVelocity")
-                                                bg.Name = "BumpAuraBG"
-                                                bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-                                                bg.AngularVelocity = Vector3.new(math.random(-30,30), math.random(-30,30), math.random(-30,30))
-                                                bg.Parent = vPart
-                                                task.delay(0.3, function()
-                                                    pcall(function() bv:Destroy() end)
-                                                    pcall(function() bg:Destroy() end)
-                                                end)
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end)
-                end
-            end)
-            if A then A:Notify({Title = "✅ Bump Aura Car ON", Description = "Repeliendo carros enemigos", Duration = 3}) end
-        else
-            if A then A:Notify({Title = "❌ Bump Aura Car OFF", Duration = 3}) end
         end
     end
 })
@@ -3992,7 +3966,6 @@ VehicleTab:Toggle({
 })
 
 VehicleTab:Divider()
-end
 do
 local function createBlockPin()
     local pinGui = Instance.new("ScreenGui")
@@ -4055,22 +4028,24 @@ task.wait(1)
 print("🎯 Yupitactico v3.1.4 - Todos los cambios aplicados!")
 print("🎨 Title: 'yupitactico I block spin paid 🔪' - Purple BG / Blue text")
 print("🌐 Menu: All in English")
-print("📍 Silent Aim: Random Head/Torso cada 3s (8 hits) + Dropdown Head and Torso/Random")
+print("📍 Silent Aim: Random Head/Torso con detección de visibilidad")
+print("🎯 Auto Shoot / Auto Reload / Shot Multiplier en COMBAT tab")
 print("🎒 ESP Inventario: Actualización cada 10s")
-print("🖼️ ESP Items: Imagen + Nombre (mismo tamaño)")
-print("🚪🪟 Doors + Windows: Eliminar puertas y ventanas (mapa + carros)")
-print("🛡️ Anti Bump: Snap x2 cuando HP > 40")
+print("🖼️ ESP Items: Text + Highlight (RICK-SOURCE style)")
+print("🚪🪟 Doors + Windows: Auto-activado al iniciar")
 print("🔄 Anti Aim Beta: Character rotates auto, camera moves normally")
-print("❤️ God Mode: GUI separada Mode Normal / God Mode")
+print("❤️ God Mode: Toggle directo")
 print("🦘 Jump Power: Altura 50, solo botón de salto")
+print("🏃 Walk Speed + Speed Multiplier en CHARACTER tab")
 print("🙈 Hide Name: Shows 'yupitactico on top' in rainbow")
 print("🚗 Car Guard: Bloquea 'crashed_car'")
 print("🛡️ God Car: Carro NO se rompe al chocar")
-print("💥 Bump Aura Car: FIXED con network ownership")
 print("💾 Save Car: FIXED con network ownership")
 print("🚀 Speed Car: Slider 1-100 + On-screen joystick + WASD/Space/Shift")
-print("💳 Auto Hack ATMs: Completa minijuego SliderMinigame")
-print("🎣 Auto Pesca: Completa minijuego de pesca")
+print("🔫 Auto Buy Ammo + Bullet Type Dropdown en MISC tab")
+print("💳 Auto Hack ATMs: Auto-activado al iniciar")
+print("🎣 Auto Pesca: Auto-activado al iniciar")
+print("📦 Skip Crate Animation: Auto-activado al iniciar")
 print("🎨 Tracer: Color Cambiante (Rainbow)")
 print("⚪ FOV: Blanco")
 print("🟢 Tag: 3.1.4 Verde")
