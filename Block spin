@@ -30,10 +30,205 @@ r:GetMouse()
 
 local z = d.TouchEnabled and not d.KeyboardEnabled
 
-local A
+local ObsidianLib
 pcall(function()
-    A = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+    ObsidianLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/deividcomsono/Obsidian/main/Library.lua"))()
 end)
+
+local _elementCounter = 0
+local function _genIdx()
+    _elementCounter = _elementCounter + 1
+    return "yup_el_" .. _elementCounter
+end
+
+local A
+if ObsidianLib then
+    A = {}
+
+    function A:CreateWindow(opts)
+        opts = opts or {}
+        local win = ObsidianLib:CreateWindow({
+            Title = opts.Title or "Yupitactico",
+            Footer = opts.Author or "",
+            NotifySide = "Right",
+            ShowCustomCursor = true,
+            ToggleKeybind = opts.KeyCode or Enum.KeyCode.G,
+            AutoShow = true,
+            Center = true,
+            Resizable = true,
+        })
+
+        local wrapper = {}
+        wrapper._window = win
+        wrapper.Visible = true
+
+        function wrapper:EditOpenButton(opts2) end
+
+        function wrapper:Tag(opts2) end
+
+        function wrapper:UpdateTheme(theme)
+            if type(theme) == "table" then
+                pcall(function()
+                    if theme.Accent then ObsidianLib.Scheme.AccentColor = theme.Accent end
+                    if theme.Text then ObsidianLib.Scheme.FontColor = theme.Text end
+                end)
+            end
+        end
+
+        function wrapper:Tab(tabOpts)
+            tabOpts = tabOpts or {}
+            local tab = win:AddTab({ Title = tabOpts.Title or "Tab", Icon = tabOpts.Icon })
+            local tabWrapper = {}
+            tabWrapper._tab = tab
+            tabWrapper._currentGroupbox = nil
+            tabWrapper._side = "Left"
+
+            function tabWrapper:Section(sectionOpts)
+                sectionOpts = sectionOpts or {}
+                if self._side == "Left" then
+                    self._currentGroupbox = tab:AddLeftGroupbox(sectionOpts.Title or "Section")
+                    self._side = "Right"
+                else
+                    self._currentGroupbox = tab:AddRightGroupbox(sectionOpts.Title or "Section")
+                    self._side = "Left"
+                end
+                return self._currentGroupbox
+            end
+
+            function tabWrapper:Toggle(toggleOpts)
+                toggleOpts = toggleOpts or {}
+                local gb = self._currentGroupbox
+                if not gb then gb = self:Section({Title = "Settings"}) end
+                local idx = _genIdx()
+                local t = gb:AddToggle(idx, {
+                    Text = toggleOpts.Title or "Toggle",
+                    Default = toggleOpts.Default or false,
+                    Callback = toggleOpts.Callback or function() end,
+                    Tooltip = toggleOpts.Desc,
+                })
+                return t
+            end
+
+            function tabWrapper:Slider(sliderOpts)
+                sliderOpts = sliderOpts or {}
+                local gb = self._currentGroupbox
+                if not gb then gb = self:Section({Title = "Settings"}) end
+                local idx = _genIdx()
+                local v = sliderOpts.Value or {}
+                local step = sliderOpts.Step or 1
+                local rounding = 0
+                if type(step) == "number" and step < 1 then
+                    if step >= 0.1 then rounding = 1
+                    elseif step >= 0.01 then rounding = 2
+                    else rounding = 3 end
+                end
+                local s = gb:AddSlider(idx, {
+                    Text = sliderOpts.Title or "Slider",
+                    Default = v.Default or 0,
+                    Min = v.Min or 0,
+                    Max = v.Max or 100,
+                    Rounding = rounding,
+                    Callback = sliderOpts.Callback or function() end,
+                })
+                return s
+            end
+
+            function tabWrapper:Button(buttonOpts)
+                buttonOpts = buttonOpts or {}
+                local gb = self._currentGroupbox
+                if not gb then gb = self:Section({Title = "Actions"}) end
+                local b = gb:AddButton({
+                    Text = buttonOpts.Title or "Button",
+                    Func = buttonOpts.Callback or function() end,
+                    Tooltip = buttonOpts.Desc,
+                })
+                return b
+            end
+
+            function tabWrapper:Input(inputOpts)
+                inputOpts = inputOpts or {}
+                local gb = self._currentGroupbox
+                if not gb then gb = self:Section({Title = "Input"}) end
+                local idx = _genIdx()
+                local i = gb:AddInput(idx, {
+                    Text = inputOpts.Title or "Input",
+                    Default = inputOpts.Value or "",
+                    Placeholder = inputOpts.Placeholder or "",
+                    Callback = inputOpts.Callback or function() end,
+                })
+                return i
+            end
+
+            function tabWrapper:Dropdown(ddOpts)
+                ddOpts = ddOpts or {}
+                local gb = self._currentGroupbox
+                if not gb then gb = self:Section({Title = "Dropdown"}) end
+                local idx = _genIdx()
+                local default = ddOpts.Value
+                if ddOpts.Multi and type(default) ~= "table" then default = {} end
+                local d = gb:AddDropdown(idx, {
+                    Text = ddOpts.Title or "Dropdown",
+                    Values = ddOpts.Values or {},
+                    Default = default,
+                    Multi = ddOpts.Multi or false,
+                    Callback = ddOpts.Callback or function() end,
+                })
+                return d
+            end
+
+            function tabWrapper:Divider()
+                if self._currentGroupbox then
+                    self._currentGroupbox:AddDivider()
+                end
+            end
+
+            return tabWrapper
+        end
+
+        function wrapper:SetVisible(state)
+            wrapper.Visible = state
+            pcall(function()
+                if win and win.MainFrame then
+                    win.MainFrame.Visible = state
+                end
+            end)
+        end
+
+        function wrapper:Toggle()
+            wrapper.Visible = not wrapper.Visible
+            self:SetVisible(wrapper.Visible)
+        end
+
+        wrapper.ConfigManager = {
+            Init = function() end,
+            CreateConfig = function(name)
+                local config = {}
+                local _registered = {}
+                function config:Register(name2, element)
+                    _registered[name2] = element
+                end
+                function config:Save(configSelf) end
+                function config:Load(configSelf) end
+                function config:Delete(configSelf) end
+                return config
+            end,
+        }
+
+        return wrapper
+    end
+
+    function A:Notify(opts)
+        pcall(function()
+            if ObsidianLib.Notify then
+                ObsidianLib:Notify({
+                    Title = opts.Title or "",
+                    Description = opts.Description or opts.Desc or "",
+                    Duration = opts.Duration or 3,
+                })
+            end
+        end)
+    end
+end
 
 local B
 if A then
@@ -43,7 +238,7 @@ if A then
         Author = "By Yupitactico",
         Folder = "Yupitactico",
         Size = UDim2.fromOffset(650, 400),
-        Theme = "Dark",
+        Theme = "Obsidian",
         Transparent = true,
         Resizable = true,
         KeyCode = Enum.KeyCode.G
@@ -74,6 +269,24 @@ if A then
         Draggable = true,
     })
 
+    pcall(function()
+        local PurpleTheme = {
+            Background = Color3.fromRGB(17, 13, 28),
+            Main       = Color3.fromRGB(27, 21, 42),
+            Panel      = Color3.fromRGB(36, 29, 53),
+            Border     = Color3.fromRGB(67, 55, 85),
+            Accent     = Color3.fromRGB(181, 119, 176),
+            Text       = Color3.fromRGB(230, 222, 238),
+        }
+        ObsidianLib.Scheme = {
+            BackgroundColor = PurpleTheme.Background,
+            MainColor       = PurpleTheme.Main,
+            AccentColor     = PurpleTheme.Accent,
+            OutlineColor    = PurpleTheme.Border,
+            FontColor       = PurpleTheme.Text,
+        }
+    end)
+
     B:Tag({
         Title = "Yupitactico | v2.2",
         Icon = "",
@@ -99,13 +312,26 @@ else
         Tab = function(C)
             return {
                 Section = function() end,
-                Toggle = function() end,
-                Slider = function() end,
-                Button = function() end,
+                Toggle = function() return {} end,
+                Slider = function() return {} end,
+                Button = function() return {} end,
                 Input = function() return {} end,
+                Dropdown = function() return {} end,
                 Divider = function() end
             }
-        end
+        end,
+        SetVisible = function() end,
+        Toggle = function() end,
+        Visible = true,
+        EditOpenButton = function() end,
+        Tag = function() end,
+        UpdateTheme = function() end,
+        ConfigManager = {
+            Init = function() end,
+            CreateConfig = function()
+                return { Register = function() end, Save = function() end, Load = function() end, Delete = function() end }
+            end,
+        },
     }
 end
 
@@ -1682,7 +1908,7 @@ end)
 
 loadESP()
 do
-local aN = B:Tab({Title = "COMBAT:", Icon = "crosshair"})
+local aN = B:Tab({Title = "Combate", Icon = "swords"})
 
 aN:Section({Title = "GUN:"})
 
@@ -1913,7 +2139,7 @@ pcall(function()
 end)
 end
 do
-local aS = B:Tab({Title = "WEAPON:", Icon = "layers"})
+local aS = B:Tab({Title = "Automatización", Icon = "zap"})
 
 aS:Section({Title = "MODS:"})
 
@@ -2150,11 +2376,12 @@ local aV = aS:Toggle({
 D:Register("AutoAttack_Enabled", aV)
 end
 do
-local aW = B:Tab({Title = "ESP:", Icon = "eye"})
+local aW = B:Tab({Title = "Visuales", Icon = "eye"})
 
-aW:Section({Title = "Visual:"})
+local aInv = B:Tab({Title = "Visor de Inventario", Icon = "package"})
+aInv:Section({Title = "Inventario"})
 
-local aX = aW:Toggle({
+local aX = aInv:Toggle({
     Title = "Inventory Viewer",
     Default = false,
     Callback = function(aX)
@@ -2189,6 +2416,8 @@ local aX = aW:Toggle({
     end
 })
 D:Register("ItemsESP", aX)
+
+aW:Section({Title = "Visual:"})
 
 local aY = aW:Toggle({
     Title = "Name",
@@ -2264,7 +2493,7 @@ for a1, a2 in pairs(game.Players:GetPlayers()) do
 end
 end
 do
-local a1 = B:Tab({Title = "CHARACTER:", Icon = "user"})
+local a1 = B:Tab({Title = "Movimiento", Icon = "footprints"})
 
 a1:Section({Title = "CHARACTER:"})
 
@@ -2669,57 +2898,10 @@ do
         end)
     end
     a1:Divider()
-    a1:Section({Title = "God Mode"})
-
-    local godModeEnabled = false
-    local godModeLoop = nil
-
-    local aGod = a1:Toggle({
-        Title = "❤️ God Mode",
-        Desc = "Vida máxima permanente",
-        Default = false,
-        Callback = function(bx)
-            godModeEnabled = bx
-            if godModeLoop then
-                pcall(function() task.cancel(godModeLoop) end)
-                godModeLoop = nil
-            end
-            if bx then
-                godModeLoop = task.spawn(function()
-                    while godModeEnabled do
-                        task.wait(0.1)
-                        pcall(function()
-                            local hum = o.get_hum()
-                            if hum then
-                                if hum.MaxHealth < 1e9 then
-                                    hum.MaxHealth = 1e9
-                                end
-                                if hum.Health < hum.MaxHealth then
-                                    hum.Health = hum.MaxHealth
-                                end
-                                hum:SetAttribute("HasBeenDowned", false)
-                                hum:SetAttribute("IsDead", false)
-                            end
-                        end)
-                    end
-                end)
-                if A then A:Notify({Title = "✅ God Mode ON", Description = "Vida máxima permanente", Duration = 3}) end
-            else
-                pcall(function()
-                    local hum = o.get_hum()
-                    if hum then hum.MaxHealth = 100 end
-                end)
-                if A then A:Notify({Title = "❌ God Mode OFF", Duration = 3}) end
-            end
-        end
-    })
-    D:Register("GodMode", aGod)
-
-    a1:Divider()
 end
 end
 do
-local bf = B:Tab({Title = "PLAYER:", Icon = "person-standing"})
+local bf = B:Tab({Title = "Principal", Icon = "house"})
 
 bf:Section({Title = "PLAYER:"})
 
@@ -2748,7 +2930,7 @@ D:Register("AutoFinnish", bi)
 bf:Divider()
 end
 do
-local bk = B:Tab({Title = "MISC:", Icon = "warehouse"})
+local bk = B:Tab({Title = "Ajustes", Icon = "settings"})
 
 local bl = game.PlaceId
 local ServerJobId = game.JobId
@@ -3469,7 +3651,7 @@ do
         end)
     end)
 end
-local VehicleTab = B:Tab({Title = "Vehicle", Icon = "car"})
+local VehicleTab = B:Tab({Title = "Teletransportes", Icon = "signpost"})
 
 VehicleTab:Section({Title = "Vehicle"})
 
@@ -3509,7 +3691,7 @@ VehicleTab:Button({
 
 VehicleTab:Divider()
 
-VehicleTab:Section({Title = "Car Guard / God Car / Bump Aura / Save Car / Mods"})
+VehicleTab:Section({Title = "Car Guard"})
 local function getMyVehicle()
     local client = game.Players.LocalPlayer
     local vehicles = workspace:FindFirstChild("Vehicles")
@@ -3560,60 +3742,7 @@ VehicleTab:Toggle({
         end
     end
 })
-local GodCarEnabled = false
-local godCarLoop = nil
 
-VehicleTab:Toggle({
-    Title = "🛡️ God Car",
-    Desc = "El carro NO se rompe al chocar cosas",
-    Default = false,
-    Callback = function(bx)
-        GodCarEnabled = bx
-        CarGuardEnabled = bx
-        installCarGuardHook()
-
-        if godCarLoop then
-            pcall(function() task.cancel(godCarLoop) end)
-            godCarLoop = nil
-        end
-        if bx then
-            godCarLoop = task.spawn(function()
-                while GodCarEnabled do
-                    task.wait(0.2)
-                    pcall(function()
-                        local vehicle = getMyVehicle()
-                        if not vehicle then return end
-                        vehicle:SetAttribute("Health", 100)
-                        vehicle:SetAttribute("Crashed", false)
-                        vehicle:SetAttribute("Damaged", false)
-                        vehicle:SetAttribute("Destroyed", false)
-                        vehicle:SetAttribute("IsCrashed", false)
-                        for _, part in ipairs(vehicle:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                if part:GetAttribute("Breakable") ~= false then
-                                    part.CanCollide = true
-                                end
-                                if part.Transparency == 1 and part.Name ~= "HumanoidRootPart" then
-                                    pcall(function()
-                                        if part:GetAttribute("OriginalTransparency") then
-                                            part.Transparency = part:GetAttribute("OriginalTransparency")
-                                        end
-                                    end)
-                                end
-                            end
-                            if part:IsA("Weld") or part:IsA("WeldConstraint") or part:IsA("Motor6D") then
-                                pcall(function() part.Enabled = true end)
-                            end
-                        end
-                    end)
-                end
-            end)
-            if A then A:Notify({Title = "✅ God Car ON", Description = "Carro inmune a choques", Duration = 3}) end
-        else
-            if A then A:Notify({Title = "❌ God Car OFF", Duration = 3}) end
-        end
-    end
-})
 
 VehicleTab:Divider()
 do
