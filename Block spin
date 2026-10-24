@@ -2626,56 +2626,18 @@ do
 
     do
         local antiAimEnabled = false
-        local antiAimLoop = nil
-        local antiAimSpin = 0
 
         local aAntiAim = a1:Toggle({
             Title = "🔄 Anti Aim Beta",
-            Desc = "Rotates character automatically. Camera moves normally.",
+            Desc = "Rotates character fast (down/up/sides). Movement not affected.",
             Default = false,
             Callback = function(state)
                 antiAimEnabled = state
-                if antiAimLoop then
-                    pcall(function() task.cancel(antiAimLoop) end)
-                    antiAimLoop = nil
-                end
                 if state then
-                    antiAimLoop = task.spawn(function()
-                        local RunService = game:GetService("RunService")
-                        local client = game.Players.LocalPlayer
-                        local cycle = 0
-
-                        while antiAimEnabled do
-                            task.wait(0.05)
-                            cycle = cycle + 1
-                            pcall(function()
-                                local char = client.Character
-                                if not char then return end
-                                local hrp = char:FindFirstChild("HumanoidRootPart")
-                                local hum = char:FindFirstChildOfClass("Humanoid")
-                                if not hrp or not hum or hum.Health <= 0 then return end
-                                local phase = cycle % 16
-                                local angle
-                                if phase < 4 then
-                                    angle = 0
-                                elseif phase < 8 then
-                                    angle = math.rad(90)
-                                elseif phase < 12 then
-                                    angle = math.rad(180)
-                                else
-                                    angle = math.rad(270)
-                                end
-                                local targetCFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, angle, 0)
-                                local currentCFrame = hrp.CFrame
-                                local smoothAngle = currentCFrame.Rotation:Lerp(targetCFrame.Rotation, 0.4)
-                                hrp.CFrame = CFrame.new(hrp.Position) * smoothAngle
-                            end)
-                        end
-                    end)
                     if A then A:Notify({
                         Title = "✅ Anti Aim Beta ON",
-                        Description = "Character rotating automatically. Camera is free.",
-                        Duration = 4
+                        Description = "Character rotating fast in all directions",
+                        Duration = 3
                     }) end
                 else
                     if A then A:Notify({Title = "❌ Anti Aim Beta OFF", Duration = 3}) end
@@ -2683,6 +2645,28 @@ do
             end
         })
         D:Register("AntiAimBeta", aAntiAim)
+
+        b.Heartbeat:Connect(function()
+            if not antiAimEnabled then return end
+            if not r.Character then return end
+            local hrp = r.Character:FindFirstChild("HumanoidRootPart")
+            local hum = r.Character:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum or hum.Health <= 0 then return end
+
+            local originalCFrame = hrp.CFrame
+            local pos = hrp.Position
+
+            local yaw = math.rad(math.random(0, 359))
+            local pitch = math.rad(math.random(-45, 45))
+
+            hrp.CFrame = CFrame.new(pos) * CFrame.Angles(pitch, yaw, 0)
+
+            b.RenderStepped:Wait()
+
+            pcall(function()
+                hrp.CFrame = originalCFrame
+            end)
+        end)
     end
     a1:Divider()
     a1:Section({Title = "God Mode"})
@@ -3630,303 +3614,6 @@ VehicleTab:Toggle({
         end
     end
 })
-local SaveCarEnabled = false
-local saveCarLoop = nil
-
-VehicleTab:Toggle({
-    Title = "💾 Save Car",
-    Desc = "Trae tu carro si se aleja (FIXED)",
-    Default = false,
-    Callback = function(bx)
-        SaveCarEnabled = bx
-        if saveCarLoop then
-            pcall(function() task.cancel(saveCarLoop) end)
-            saveCarLoop = nil
-        end
-        if bx then
-            saveCarLoop = task.spawn(function()
-                while SaveCarEnabled do
-                    task.wait(1)
-                    pcall(function()
-                        local client = game.Players.LocalPlayer
-                        local char = client.Character
-                        if not char then return end
-                        local hrp = char:FindFirstChild("HumanoidRootPart")
-                        if not hrp then return end
-
-                        local vehicle = getMyVehicle()
-                        if not vehicle then return end
-
-                        local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
-                        if not vPart then return end
-
-                        local dist = (vPart.Position - hrp.Position).Magnitude
-                        if dist > 50 then
-                            local offset = CFrame.new(math.random(-4, 4), 3, math.random(-10, -5))
-                            pcall(function()
-                                vPart.CFrame = hrp.CFrame * offset
-                                if vehicle.PrimaryPart and vehicle.PrimaryPart ~= vPart then
-                                    vehicle:SetPrimaryPartCFrame(hrp.CFrame * offset)
-                                end
-                            end)
-                        end
-                    end)
-                end
-            end)
-            if A then A:Notify({Title = "✅ Save Car ON", Description = "Traerá tu carro si se aleja >50 studs", Duration = 3}) end
-        else
-            if A then A:Notify({Title = "❌ Save Car OFF", Duration = 3}) end
-        end
-    end
-})
-VehicleTab:Divider()
-VehicleTab:Section({Title = "Car Mods / Speed Car"})
-
-local SpeedCarValue = 50
-local SpeedCarEnabled = false
-local SpeedCarAutoEnable = true
-local speedCarLoop = nil
-local speedCarJoystickGui = nil
-local speedCarForward = 0
-local speedCarSide = 0
-local speedCarUp = 0
-local speedCarToggleRef = nil
-
-VehicleTab:Slider({
-    Title = "Speed Car (1-100)",
-    Step = 1,
-    Value = {Min = 1, Max = 100, Default = 50},
-    Callback = function(bx)
-        SpeedCarValue = tonumber(bx) or 50
-    end
-})
-local autoSpeedCarToggle = VehicleTab:Toggle({
-    Title = "⚡ Auto Speed Car on Enter",
-    Desc = "Automatically enables Speed Car when you enter a vehicle",
-    Default = true,
-    Callback = function(bx)
-        SpeedCarAutoEnable = bx
-        if A then
-            A:Notify({
-                Title = bx and "✅ Auto Speed Car ON" or "❌ Auto Speed Car OFF",
-                Description = bx and "Will enable when entering vehicle" or "Manual mode",
-                Duration = 3
-            })
-        end
-    end
-})
-D:Register("AutoSpeedCarOnEnter", autoSpeedCarToggle)
-local function createSpeedCarJoystick()
-    if speedCarJoystickGui then return end
-
-    local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
-    local PlayerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
-    local parent = CoreGui or PlayerGui
-
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "YupitacticoSpeedCarJoystick"
-    sg.ResetOnSpawn = false
-    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    sg.Parent = parent
-    speedCarJoystickGui = sg
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(0, 200, 0, 200)
-    container.Position = UDim2.new(0, 30, 1, -230)
-    container.BackgroundTransparency = 1
-    container.Parent = sg
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 20)
-    title.Position = UDim2.new(0, 0, 0, -22)
-    title.BackgroundTransparency = 1
-    title.Text = "Speed Car - " .. SpeedCarValue
-    title.TextColor3 = Color3.fromRGB(0, 255, 0)
-    title.TextSize = 14
-    title.Font = Enum.Font.GothamBold
-    title.Parent = container
-    local buttonSize = 60
-    local center = 70
-    local function makeArrowButton(name, text, posX, posY, color)
-        local btn = Instance.new("TextButton")
-        btn.Name = name
-        btn.Size = UDim2.new(0, buttonSize, 0, buttonSize)
-        btn.Position = UDim2.new(0, posX, 0, posY)
-        btn.BackgroundColor3 = color
-        btn.BackgroundTransparency = 0.3
-        btn.Text = text
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.TextSize = 28
-        btn.Font = Enum.Font.GothamBold
-        btn.AutoButtonColor = true
-        btn.Parent = container
-
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 12)
-        corner.Parent = btn
-
-        local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(0, 255, 0)
-        stroke.Thickness = 2
-        stroke.Parent = btn
-
-        return btn
-    end
-    local btnUp = makeArrowButton("BtnUp", "▲", center - buttonSize/2, 0, Color3.fromRGB(50, 80, 50))
-    local btnDown = makeArrowButton("BtnDown", "▼", center - buttonSize/2, 140, Color3.fromRGB(80, 50, 50))
-    local btnLeft = makeArrowButton("BtnLeft", "◀", 0, center - buttonSize/2, Color3.fromRGB(50, 50, 80))
-    local btnRight = makeArrowButton("BtnRight", "▶", 140, center - buttonSize/2, Color3.fromRGB(50, 50, 80))
-    local btnUpFly = Instance.new("TextButton")
-    btnUpFly.Size = UDim2.new(0, 50, 0, 50)
-    btnUpFly.Position = UDim2.new(1, -55, 0, -10)
-    btnUpFly.BackgroundColor3 = Color3.fromRGB(50, 80, 100)
-    btnUpFly.BackgroundTransparency = 0.3
-    btnUpFly.Text = "⬆"
-    btnUpFly.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btnUpFly.TextSize = 22
-    btnUpFly.Font = Enum.Font.GothamBold
-    btnUpFly.Parent = sg
-
-    local c5 = Instance.new("UICorner")
-    c5.CornerRadius = UDim.new(0, 10)
-    c5.Parent = btnUpFly
-    local btnDownFly = Instance.new("TextButton")
-    btnDownFly.Size = UDim2.new(0, 50, 0, 50)
-    btnDownFly.Position = UDim2.new(1, -55, 1, -55)
-    btnDownFly.BackgroundColor3 = Color3.fromRGB(100, 50, 80)
-    btnDownFly.BackgroundTransparency = 0.3
-    btnDownFly.Text = "⬇"
-    btnDownFly.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btnDownFly.TextSize = 22
-    btnDownFly.Font = Enum.Font.GothamBold
-    btnDownFly.Parent = sg
-
-    local c6 = Instance.new("UICorner")
-    c6.CornerRadius = UDim.new(0, 10)
-    c6.Parent = btnDownFly
-    local function bindButton(btn, onBegin, onEnd)
-        btn.MouseButton1Down:Connect(onBegin)
-        btn.MouseButton1Up:Connect(onEnd)
-
-        btn.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                onEnd()
-            end
-        end)
-
-        btn.MouseLeave:Connect(function()
-            onEnd()
-        end)
-    end
-    bindButton(btnUp, function() speedCarForward = 1 end, function() speedCarForward = 0 end)
-    bindButton(btnDown, function() speedCarForward = -1 end, function() speedCarForward = 0 end)
-    bindButton(btnLeft, function() speedCarSide = -1 end, function() speedCarSide = 0 end)
-    bindButton(btnRight, function() speedCarSide = 1 end, function() speedCarSide = 0 end)
-    bindButton(btnUpFly, function() speedCarUp = 1 end, function() speedCarUp = 0 end)
-    bindButton(btnDownFly, function() speedCarUp = -1 end, function() speedCarUp = 0 end)
-end
-
-local function destroySpeedCarJoystick()
-    if speedCarJoystickGui then
-        pcall(function() speedCarJoystickGui:Destroy() end)
-        speedCarJoystickGui = nil
-    end
-    speedCarForward = 0
-    speedCarSide = 0
-    speedCarUp = 0
-end
-
-VehicleTab:Toggle({
-    Title = "🚀 Speed Car",
-    Desc = "Show on-screen joystick to move your car (mobile/PC)",
-    Default = false,
-    Callback = function(bx)
-        SpeedCarEnabled = bx
-        if speedCarLoop then
-            pcall(function() task.cancel(speedCarLoop) end)
-            speedCarLoop = nil
-        end
-        if bx then
-            createSpeedCarJoystick()
-            speedCarLoop = task.spawn(function()
-
-                while SpeedCarEnabled do
-                    task.wait()
-                    pcall(function()
-                        local vehicle = getMyVehicle()
-                        if not vehicle then return end
-                        local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
-                        if not vPart then return end
-                        local forward = speedCarForward
-                        local side = speedCarSide
-                        local up = speedCarUp
-                        if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then
-                            forward = 1
-                        elseif UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down) then
-                            forward = -1
-                        end
-
-                        if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then
-                            side = -1
-                        elseif UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then
-                            side = 1
-                        end
-
-                        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                            up = 1
-                        elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
-                            up = -1
-                        end
-
-                        if forward ~= 0 or side ~= 0 or up ~= 0 then
-                            local speedMultiplier = SpeedCarValue * 3
-                            local lookDir = vPart.CFrame.LookVector
-                            local rightDir = vPart.CFrame.RightVector
-
-                            local moveVector = (lookDir * forward + rightDir * side + Vector3.new(0, up, 0))
-                            if moveVector.Magnitude > 0 then
-                                moveVector = moveVector.Unit * speedMultiplier
-                            end
-
-                            local oldBV = vPart:FindFirstChild("SpeedCarBV")
-                            if oldBV then oldBV:Destroy() end
-
-                            local bv = Instance.new("BodyVelocity")
-                            bv.Name = "SpeedCarBV"
-                            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-                            bv.Velocity = moveVector
-                            bv.Parent = vPart
-                        else
-                            local oldBV = vPart:FindFirstChild("SpeedCarBV")
-                            if oldBV then
-                                oldBV.Velocity = Vector3.new(0, 0, 0)
-                                task.delay(0.1, function()
-                                    pcall(function() oldBV:Destroy() end)
-                                end)
-                            end
-                        end
-                    end)
-                end
-            end)
-            if A then A:Notify({
-                Title = "✅ Speed Car ON",
-                Description = "Use the on-screen joystick or WASD/Space/Shift",
-                Duration = 5
-            }) end
-        else
-            destroySpeedCarJoystick()
-            pcall(function()
-                local vehicle = getMyVehicle()
-                if vehicle then
-                    local vPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
-                    if vPart then
-                        local oldBV = vPart:FindFirstChild("SpeedCarBV")
-                        if oldBV then oldBV:Destroy() end
-                    end
-                end
-            end)
-            if A then A:Notify({Title = "❌ Speed Car OFF", Duration = 3}) end
-        end
-    end
-})
 
 VehicleTab:Divider()
 do
@@ -3998,17 +3685,16 @@ print("🖼️ ESP Items: Text + Highlight (RICK-SOURCE style)")
 print("🚪🪟 Doors + Windows: Auto-activado al iniciar")
 print("🔄 Anti Aim Beta: Character rotates auto, camera moves normally")
 print("❤️ God Mode: Toggle directo")
-print("🦘 Jump Power: Altura 50, solo botón de salto")
+print("🦘 Jump Power: RICK-SOURCE style (hold to fly up)")
 print("🏃 Walk Speed + Speed Multiplier en CHARACTER tab")
+print("🛡️ Anti Kill: RICK-SOURCE style (_snap table)")
 print("🙈 Hide Name: Shows 'yupitactico on top' in rainbow")
 print("🚗 Car Guard: Bloquea 'crashed_car'")
 print("🛡️ God Car: Carro NO se rompe al chocar")
-print("💾 Save Car: FIXED con network ownership")
-print("🚀 Speed Car: Slider 1-100 + On-screen joystick + WASD/Space/Shift")
-print("🔫 Auto Buy Ammo + Bullet Type Dropdown en MISC tab")
 print("💳 Auto Hack ATMs: Auto-activado al iniciar")
 print("🎣 Auto Pesca: Auto-activado al iniciar")
 print("📦 Skip Crate Animation: Auto-activado al iniciar")
+print("🔫 Auto Buy Ammo + Bullet Type Dropdown en MISC tab")
 print("🎨 Tracer: Color Cambiante (Rainbow)")
 print("⚪ FOV: Blanco")
 print("🟢 Tag: 3.1.4 Verde")
